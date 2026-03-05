@@ -1,0 +1,60 @@
+{
+  "name": "magic-patterns-vite-template",
+  "version": "0.0.1",
+  "private": true,
+  "main": "main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "electron": "electron .",
+    "dist": "vite build && electron-builder"
+  },
+  "build": {
+    "appId": "lk.petalpink.pos",
+    "productName": "Petal Pink POS",
+    "win": {
+      "target": "nsis"
+    },
+    "files": [
+      "dist/**/*",
+      "main.cjs",
+      "assets/**/*"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "backend/",
+        "to": "backend/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  },
+  "dependencies": {
+    "@emotion/react": "^11.13.3",
+    "lucide-react": "0.522.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.18",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@typescript-eslint/eslint-plugin": "^5.54.0",
+    "@typescript-eslint/parser": "^5.54.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "latest",
+    "electron": "^40.7.0",
+    "electron-builder": "^26.8.1",
+    "eslint": "^8.50.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.1",
+    "postcss": "latest",
+    "tailwindcss": "3.4.17",
+    "typescript": "^5.5.4",
+    "vite": "^5.2.0"
+  }
+}
