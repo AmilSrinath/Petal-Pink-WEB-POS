@@ -24,8 +24,24 @@ import { DataTable, Column } from '../components/DataTable';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
+interface Item {
+  itemId: number;
+  itemBarCode: number;
+  itemName: string;
+  unitType: string;
+  unitPrice: number;
+  costPrice: number;
+  discount: number;
+  weight: number;
+  itemCodePrefix: string;
+  sellingStatus: number;
+  status: number;
+}
+
 interface CartItem {
   id: string;
+  itemId: number;
+  itemWeight: number;
   name: string;
   qty: number;
   unitPrice: number;
@@ -470,9 +486,14 @@ export function SalesPage() {
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Left Column: Item selection ──
-  const [selectedItem, setSelectedItem] = useState('Suwadal 500g');
+  // ── Items from API ──
+  const [items, setItems] = useState<Item[]>([]);
+  const [isLoadingItems, setIsLoadingItems] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<number | ''>('');
   const [qty, setQty] = useState(1);
+
+  // Derived: currently selected item object
+  const selectedItem = items.find((i) => i.itemId === selectedItemId) ?? null;
 
   // ── Left Column: Cart & discounts ──
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -508,6 +529,27 @@ export function SalesPage() {
       : cart.reduce((sum, item) => sum + item.discount, 0);
   const deliveryFee = isFreeShip ? 0 : 400;
   const grandTotal = subTotal - totalDiscount + deliveryFee;
+
+  // ── Fetch items ───────────────────────────────────────────────────────────
+
+  const fetchItems = useCallback(async () => {
+    setIsLoadingItems(true);
+    try {
+      const res = await fetch('http://localhost:8080/api/items');
+      if (!res.ok) throw new Error(`Failed to fetch items: ${res.status}`);
+      const data: Item[] = await res.json();
+      // Only show items that are active (status=1, sellingStatus=1)
+      const active = data.filter((i) => i.status === 1 && i.sellingStatus === 1);
+      setItems(active);
+      if (active.length > 0) setSelectedItemId(active[0].itemId);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoadingItems(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchItems(); }, []);
 
   // ── Fetch orders ──────────────────────────────────────────────────────────
 
@@ -660,19 +702,48 @@ export function SalesPage() {
   // ── Cart handlers ─────────────────────────────────────────────────────────
 
   const handleAddItem = () => {
-    const newItem: CartItem = {
-      id: Date.now().toString(),
-      name: selectedItem,
-      qty,
-      unitPrice: 500,
-      discount: 0,
-      amount: 500 * qty,
-    };
-    setCart([...cart, newItem]);
+    if (!selectedItem) return;
+
+    const itemDiscount = selectedItem.discount ?? 0;
+    const existingIndex = cart.findIndex((c) => c.itemId === selectedItem.itemId);
+
+    if (existingIndex !== -1) {
+      // Same item already in cart — just increment qty and recalc amount
+      setCart((prev) =>
+        prev.map((c, i) => {
+          if (i !== existingIndex) return c;
+          const newQty = c.qty + qty;
+          const newAmount = c.unitPrice * newQty - c.discount;
+          return { ...c, qty: newQty, amount: newAmount > 0 ? newAmount : 0 };
+        })
+      );
+    } else {
+      // New item — add fresh row
+      const lineTotal = selectedItem.unitPrice * qty - itemDiscount;
+      const newItem: CartItem = {
+        id: Date.now().toString(),
+        itemId: selectedItem.itemId,
+        itemWeight: selectedItem.weight,
+        name: `${selectedItem.itemName} (${selectedItem.itemCodePrefix})`,
+        qty,
+        unitPrice: selectedItem.unitPrice,
+        discount: itemDiscount,
+        amount: lineTotal > 0 ? lineTotal : 0,
+      };
+      setCart((prev) => [...prev, newItem]);
+    }
+
+    // Accumulate weight regardless of new/existing
+    setWeight((prev) => prev + selectedItem.weight * qty);
   };
 
-  const handleRemoveItem = (id: string) =>
-    setCart(cart.filter((item) => item.id !== id));
+  const handleRemoveItem = (id: string) => {
+    const removing = cart.find((c) => c.id === id);
+    if (removing) {
+      setWeight((prev) => Math.max(0, prev - removing.itemWeight * removing.qty));
+    }
+    setCart((prev) => prev.filter((c) => c.id !== id));
+  };
 
   const handleItemDiscountChange = (id: string, newDiscount: number) => {
     setCart(
@@ -708,13 +779,13 @@ export function SalesPage() {
     setOrderCode(`ORD-2026-00${orders.length + 7}`);
     setFullOrderDiscount(0);
     setIsFreeShip(false);
+    setWeight(0);
   };
 
   // ── Modal action handler ───────────────────────────────────────────────────
 
   const handleOrderAction = (order: Order, action: string, note?: string) => {
     if (action === 'edit') {
-      // Populate left form with order data
       setOrderCode(order.orderCode);
       setCustomerName(order.customerName);
       setPhone(order.phoneOne);
@@ -723,7 +794,6 @@ export function SalesPage() {
       return;
     }
 
-    // Map action to status string
     const statusMap: Record<string, string> = {
       delivered: 'Delivered',
       returned: 'Returned',
@@ -733,7 +803,7 @@ export function SalesPage() {
       pending: 'Pending',
       wrapping: 'Wrapping',
       checking: 'Checking',
-      special_note: order.status, // keep status, just log note
+      special_note: order.status,
     };
 
     const newStatus = statusMap[action] ?? order.status;
@@ -772,7 +842,6 @@ export function SalesPage() {
       header: 'Actions',
       accessor: (row) => (
         <div className="flex items-center gap-1.5">
-          {/* Eye / View button */}
           <button
             onClick={() => setViewModalOrder(row)}
             title="View order details"
@@ -780,7 +849,6 @@ export function SalesPage() {
           >
             <EyeIcon className="h-3.5 w-3.5" />
           </button>
-          {/* Pencil / Action button */}
           <button
             onClick={() => setActionModalOrder(row)}
             title="Order actions"
@@ -918,24 +986,67 @@ export function SalesPage() {
           {/* ── Item Selection Section ── */}
           <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="space-y-2 mb-3">
+
+              {/* Item dropdown */}
               <FieldRow label="Select Item">
-                <select value={selectedItem} onChange={(e) => setSelectedItem(e.target.value)} className={selectCls}>
-                  <option value="Suwadal 500g">Suwadal Sahal 500g</option>
-                  <option value="Kalu Heenati 1kg">Kalu Heenati 1kg</option>
-                  <option value="Rose Water 100ml">Rose Water 100ml</option>
-                </select>
+                {isLoadingItems ? (
+                  <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
+                    <RefreshCwIcon className="h-3.5 w-3.5 animate-spin text-teal-500" />
+                    Loading items…
+                  </div>
+                ) : (
+                  <select
+                    value={selectedItemId}
+                    onChange={(e) => setSelectedItemId(Number(e.target.value))}
+                    className={selectCls}
+                  >
+                    {items.map((item) => (
+                      <option key={item.itemId} value={item.itemId}>
+                        {item.itemName} ({item.itemCodePrefix})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </FieldRow>
 
+              {/* Read-only info strip for selected item */}
+              {selectedItem && (
+                <div className="grid grid-cols-3 gap-2 rounded-lg bg-teal-50 border border-teal-100 px-3 py-2">
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500">Unit Price</p>
+                    <p className="text-sm font-bold text-teal-700">{selectedItem.unitPrice.toFixed(2)}</p>
+                  </div>
+                  <div className="text-center border-x border-teal-200">
+                    <p className="text-xs text-gray-500">Discount</p>
+                    <p className="text-sm font-bold text-teal-700">{selectedItem.discount.toFixed(2)}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-gray-500">Weight ({selectedItem.unitType})</p>
+                    <p className="text-sm font-bold text-teal-700">{selectedItem.weight}g</p>
+                  </div>
+                </div>
+              )}
+
               <FieldRow label="Qty">
-                <input type="number" min="1" value={qty} onChange={(e) => setQty(parseInt(e.target.value) || 1)} className={inputCls} />
+                <input
+                  type="number"
+                  min="1"
+                  value={qty}
+                  onChange={(e) => setQty(parseInt(e.target.value) || 1)}
+                  className={inputCls}
+                />
               </FieldRow>
             </div>
 
             <div className="flex gap-2 border-b border-gray-100 pb-3">
-              <button onClick={() => setCart([])} className="flex items-center rounded-md bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600">
+              <button onClick={() => { setCart([]); setWeight(0); }} className="flex items-center rounded-md bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600" title="Clear all cart items and reset weight">
                 <Trash2Icon className="mr-1.5 h-3.5 w-3.5" /> Remove All
               </button>
-              <button onClick={handleAddItem} className="flex flex-1 items-center justify-center rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700">
+              <button
+                onClick={handleAddItem}
+                disabled={!selectedItem}
+                className="flex flex-1 items-center justify-center rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 <PlusIcon className="mr-1.5 h-3.5 w-3.5" /> Add Item
               </button>
             </div>
@@ -1024,7 +1135,12 @@ export function SalesPage() {
               </FieldRow>
 
               <FieldRow label="Weight (g)">
-                <input type="number" value={weight} onChange={(e) => setWeight(parseInt(e.target.value) || 0)} className={inputCls} />
+                <input
+                  type="number"
+                  value={weight}
+                  onChange={(e) => setWeight(parseInt(e.target.value) || 0)}
+                  className={inputCls}
+                />
               </FieldRow>
 
               <FieldRow label="Payment Type">

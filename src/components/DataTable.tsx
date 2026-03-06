@@ -23,7 +23,7 @@ export function DataTable<T>({
             <th
               key={idx}
               scope="col"
-              className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-white ${col.className || ''}`}>
+              className={`px-2 py-3 text-left text-xs font-medium uppercase tracking-wider text-white ${col.className || ''}`}>
 
                 {col.header}
               </th>
@@ -46,7 +46,7 @@ export function DataTable<T>({
                 {columns.map((col, colIdx) =>
             <td
               key={colIdx}
-              className={`whitespace-nowrap px-6 py-4 text-sm text-gray-900 ${col.className || ''}`}>
+              className={`whitespace-nowrap px-2 py-4 text-sm text-gray-900 ${col.className || ''}`}>
 
                     {typeof col.accessor === 'function' ?
               col.accessor(row) :
