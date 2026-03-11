@@ -10,7 +10,6 @@ import {
   EyeIcon,
   XIcon,
   CheckCircleIcon,
-  TruckIcon,
   RotateCcwIcon,
   XCircleIcon,
   ClockIcon,
@@ -41,6 +40,7 @@ interface Item {
 interface CartItem {
   id: string;
   itemId: number;
+  itemBarCode: number;
   itemWeight: number;
   name: string;
   qty: number;
@@ -50,6 +50,7 @@ interface CartItem {
 }
 
 interface Order {
+  deliveryId: number;
   orderCode: string;
   customerName: string;
   phoneOne: string;
@@ -58,7 +59,19 @@ interface Order {
   totalAmount: number;
   orderType: string;
   date: string;
-  status: string;
+  statusId: number;
+}
+
+interface OrderItem {
+  itemId: number;
+  itemBarCode: number;
+  itemName: string;
+  itemCodePrefix: string;
+  unitPrice: number;
+  unitType: string;
+  discount: number;
+  weight: number;
+  quantity: number;
 }
 
 interface DeliveryOrderResponse {
@@ -93,44 +106,52 @@ interface DeliveryOrderResponse {
   paymentTypeId: number;
 }
 
+interface OrderTypeOption {
+  id: number;
+  type: string;
+  status: number;
+  createdAt: string;
+  editedDate: string;
+}
+
+interface StatusTypeOption {
+  statusId: number;
+  statusType: string;
+  regId: number;
+  status: number;
+}
+
+interface PaymentTypeOption {
+  paymentTypeId: number;
+  paymentType: string;
+  status: number;
+  userId: number;
+  visible: number;
+}
+
 // ─── Today's date helper ──────────────────────────────────────────────────────
 
 const getTodayStr = (): string => new Date().toISOString().split('T')[0];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const mapStatusId = (statusId: number): string => {
+const statusBadgeClass = (statusId: number): string => {
   switch (statusId) {
-    case 1: return 'Pending';
-    case 2: return 'Processing';
-    case 3: return 'Dispatched';
-    case 4: return 'Out for Delivery';
-    case 5: return 'Delivered';
-    case 6: return 'Returned';
-    case 7: return 'No Answer';
-    case 8: return 'Cancelled';
-    default: return 'Unknown';
-  }
-};
-
-const statusBadgeClass = (status: string): string => {
-  switch (status) {
-    case 'Delivered': return 'bg-green-100 text-green-800';
-    case 'No Answer': return 'bg-red-100 text-red-700';
-    case 'Pending': return 'bg-yellow-100 text-yellow-800';
-    case 'Processing': return 'bg-blue-100 text-blue-800';
-    case 'Dispatched': return 'bg-purple-100 text-purple-800';
-    case 'Out for Delivery': return 'bg-orange-100 text-orange-800';
-    case 'Returned': return 'bg-pink-100 text-pink-800';
-    case 'Cancelled': return 'bg-gray-200 text-gray-700';
-    case 'Wrapping': return 'bg-indigo-100 text-indigo-800';
-    case 'Checking': return 'bg-cyan-100 text-cyan-800';
-    case 'Returning': return 'bg-rose-100 text-rose-800';
+    case 1:  return 'bg-blue-100 text-blue-800';
+    case 2:  return 'bg-yellow-100 text-yellow-800';
+    case 3:  return 'bg-indigo-100 text-indigo-800';
+    case 4:  return 'bg-purple-100 text-purple-800';
+    case 5:  return 'bg-green-100 text-green-800';
+    case 6:  return 'bg-pink-100 text-pink-800';
+    case 7:  return 'bg-gray-200 text-gray-700';
+    case 12: return 'bg-rose-100 text-rose-800';
+    case 13: return 'bg-cyan-100 text-cyan-800';
     default: return 'bg-gray-100 text-gray-600';
   }
 };
 
 const mapApiToOrder = (d: DeliveryOrderResponse): Order => ({
+  deliveryId: d.deliveryId,
   orderCode: d.orderCode?.trim() ?? '',
   customerName: d.customerName?.trim() ?? '',
   phoneOne: d.phoneOne ?? '',
@@ -139,8 +160,44 @@ const mapApiToOrder = (d: DeliveryOrderResponse): Order => ({
   totalAmount: d.totalOrderPrice ?? 0,
   orderType: d.orderType ?? '',
   date: d.createdDate ? d.createdDate.split('T')[0] : '',
-  status: mapStatusId(d.statusId),
+  statusId: d.statusId,
 });
+
+// ─── Role helpers ─────────────────────────────────────────────────────────────
+
+const isSuperAdmin = (): boolean => {
+  try {
+    return localStorage.getItem('username') === 'Super Admin';
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Returns true if the status transition is allowed for the current user.
+ * Super Admin bypasses all restrictions.
+ *
+ * Allowed flows for non-admin:
+ *   Pending (2)   → Wrapping (3)
+ *   Wrapping (3)  → Despatch (4)
+ *   Despatch (4)  → Delivered (5)
+ *   Returning (12)→ Return (6)
+ *   Delivered (5) → nothing
+ *   Cancel (7)    → nothing
+ */
+const isStatusButtonAllowed = (currentStatusId: number, targetStatusId: number): boolean => {
+  if (isSuperAdmin()) return true;
+  if (currentStatusId === 5 || currentStatusId === 7) return false;
+
+  const allowedNext: Record<number, number> = {
+    2:  3,   // Pending   → Wrapping
+    3:  4,   // Wrapping  → Despatch
+    4:  5,   // Despatch  → Delivered
+    12: 6,   // Returning → Return
+  };
+
+  return allowedNext[currentStatusId] === targetStatusId;
+};
 
 // ─── Shared style constants ───────────────────────────────────────────────────
 
@@ -177,6 +234,7 @@ interface ActionButton {
   hoverColor: string;
   textColor: string;
   action: string;
+  statusId?: number;
 }
 
 const actionButtons: ActionButton[] = [
@@ -189,52 +247,13 @@ const actionButtons: ActionButton[] = [
     action: 'edit',
   },
   {
-    label: 'Delivered',
-    icon: <CheckCircleIcon className="h-4 w-4" />,
-    color: 'bg-green-500',
-    hoverColor: 'hover:bg-green-600',
-    textColor: 'text-white',
-    action: 'delivered',
-  },
-  {
-    label: 'Returned',
-    icon: <RotateCcwIcon className="h-4 w-4" />,
-    color: 'bg-pink-500',
-    hoverColor: 'hover:bg-pink-600',
-    textColor: 'text-white',
-    action: 'returned',
-  },
-  {
-    label: 'Returning',
-    icon: <RotateCcwIcon className="h-4 w-4" />,
-    color: 'bg-rose-400',
-    hoverColor: 'hover:bg-rose-500',
-    textColor: 'text-white',
-    action: 'returning',
-  },
-  {
-    label: 'Cancel',
-    icon: <XCircleIcon className="h-4 w-4" />,
-    color: 'bg-gray-500',
-    hoverColor: 'hover:bg-gray-600',
-    textColor: 'text-white',
-    action: 'cancel',
-  },
-  {
-    label: 'Despatch',
-    icon: <SendIcon className="h-4 w-4" />,
-    color: 'bg-purple-500',
-    hoverColor: 'hover:bg-purple-600',
-    textColor: 'text-white',
-    action: 'despatch',
-  },
-  {
     label: 'Pending',
     icon: <ClockIcon className="h-4 w-4" />,
     color: 'bg-yellow-400',
     hoverColor: 'hover:bg-yellow-500',
     textColor: 'text-white',
-    action: 'pending',
+    action: 'status',
+    statusId: 2,
   },
   {
     label: 'Wrapping',
@@ -242,7 +261,53 @@ const actionButtons: ActionButton[] = [
     color: 'bg-indigo-500',
     hoverColor: 'hover:bg-indigo-600',
     textColor: 'text-white',
-    action: 'wrapping',
+    action: 'status',
+    statusId: 3,
+  },
+  {
+    label: 'Despatch',
+    icon: <SendIcon className="h-4 w-4" />,
+    color: 'bg-purple-500',
+    hoverColor: 'hover:bg-purple-600',
+    textColor: 'text-white',
+    action: 'status',
+    statusId: 4,
+  },
+  {
+    label: 'Delivered',
+    icon: <CheckCircleIcon className="h-4 w-4" />,
+    color: 'bg-green-500',
+    hoverColor: 'hover:bg-green-600',
+    textColor: 'text-white',
+    action: 'status',
+    statusId: 5,
+  },
+  {
+    label: 'Return',
+    icon: <RotateCcwIcon className="h-4 w-4" />,
+    color: 'bg-pink-500',
+    hoverColor: 'hover:bg-pink-600',
+    textColor: 'text-white',
+    action: 'status',
+    statusId: 6,
+  },
+  {
+    label: 'Cancel',
+    icon: <XCircleIcon className="h-4 w-4" />,
+    color: 'bg-gray-500',
+    hoverColor: 'hover:bg-gray-600',
+    textColor: 'text-white',
+    action: 'status',
+    statusId: 7,
+  },
+  {
+    label: 'Returning',
+    icon: <RotateCcwIcon className="h-4 w-4" />,
+    color: 'bg-rose-400',
+    hoverColor: 'hover:bg-rose-500',
+    textColor: 'text-white',
+    action: 'status',
+    statusId: 12,
   },
   {
     label: 'Checking',
@@ -250,15 +315,16 @@ const actionButtons: ActionButton[] = [
     color: 'bg-cyan-500',
     hoverColor: 'hover:bg-cyan-600',
     textColor: 'text-white',
-    action: 'checking',
+    action: 'status',
+    statusId: 13,
   },
   {
     label: 'Special Note',
     icon: <FileTextIcon className="h-4 w-4" />,
-    color: 'bg-orange-400',
-    hoverColor: 'hover:bg-orange-500',
+    color: 'bg-violet-500',
+    hoverColor: 'hover:bg-violet-600',
     textColor: 'text-white',
-    action: 'special_note',
+    action: 'remark',
   },
 ];
 
@@ -268,41 +334,152 @@ interface OrderActionModalProps {
   order: Order | null;
   isOpen: boolean;
   onClose: () => void;
-  onAction: (order: Order, action: string, note?: string) => void;
+  onAction: (order: Order, action: string, statusId?: number, note?: string) => Promise<void>;
+  statusTypes: StatusTypeOption[];
 }
 
-const OrderActionModal = ({ order, isOpen, onClose, onAction }: OrderActionModalProps) => {
+const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: OrderActionModalProps) => {
   const [specialNote, setSpecialNote] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
+
+  // ── Remark state ──
+  const [showRemarkInput, setShowRemarkInput] = useState(false);
+  const [remarkText, setRemarkText] = useState('');
+  const [isLoadingRemark, setIsLoadingRemark] = useState(false);
+  const [isSavingRemark, setIsSavingRemark] = useState(false);
+  const [remarkError, setRemarkError] = useState<string | null>(null);
+
+  const [loadingStatusId, setLoadingStatusId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
       setSpecialNote('');
       setShowNoteInput(false);
+      setShowRemarkInput(false);
+      setRemarkText('');
+      setIsLoadingRemark(false);
+      setIsSavingRemark(false);
+      setRemarkError(null);
+      setLoadingStatusId(null);
+      setActionError(null);
     }
   }, [isOpen]);
 
   if (!isOpen || !order) return null;
 
-  const handleActionClick = (action: string) => {
-    if (action === 'special_note') {
+  const isAnyLoading = loadingStatusId !== null || isLoadingRemark || isSavingRemark;
+
+  // ── Role-based disable logic ──────────────────────────────────────────────
+  const isButtonDisabled = (btn: ActionButton): boolean => {
+    if (isAnyLoading) return true;
+
+    if (btn.action === 'status' && btn.statusId !== undefined) {
+      if (btn.statusId === 13 && !order?.orderCode?.trim()) return true;
+      if (!isStatusButtonAllowed(order.statusId, btn.statusId)) return true; // ← skipped for Super Admin
+    }
+
+    if (btn.action === 'edit' && !isSuperAdmin()) {
+      if (order.statusId === 4 || order.statusId === 5 || order.statusId === 7) return true;
+    }
+
+    return false;
+  };
+
+  const getButtonTitle = (btn: ActionButton): string | undefined => {
+    if (btn.action === 'status' && btn.statusId === 13 && !order?.orderCode?.trim()) {
+      return 'Requires a tracking number / order code';
+    }
+    if (
+      btn.action === 'status' &&
+      btn.statusId !== undefined &&
+      !isStatusButtonAllowed(order.statusId, btn.statusId)
+    ) {
+      return 'Not available at this stage';
+    }
+    if (btn.action === 'edit' && !isSuperAdmin() && (order.statusId === 5 || order.statusId === 7)) {
+      return 'Cannot edit a completed or cancelled order';
+    }
+    return undefined;
+  };
+
+  const handleActionClick = async (btn: ActionButton) => {
+    if (isButtonDisabled(btn)) return;
+
+    if (btn.action === 'special_note') {
       setShowNoteInput(true);
       return;
     }
-    onAction(order, action);
+
+    if (btn.action === 'remark') {
+      setShowRemarkInput(true);
+      setRemarkError(null);
+      setIsLoadingRemark(true);
+      try {
+        const res = await fetch(`http://localhost:8080/api/sales/${order.deliveryId}/remark`);
+        if (!res.ok) throw new Error(`Status ${res.status}`);
+        const text = await res.text();
+        setRemarkText(text ?? '');
+      } catch (err: any) {
+        setRemarkError(err.message ?? 'Failed to load remark');
+        setRemarkText('');
+      } finally {
+        setIsLoadingRemark(false);
+      }
+      return;
+    }
+
+    if (btn.action === 'edit') {
+      await onAction(order, 'edit');
+      onClose();
+      return;
+    }
+
+    if (btn.action === 'status' && btn.statusId !== undefined) {
+      setLoadingStatusId(btn.statusId);
+      setActionError(null);
+      try {
+        await onAction(order, 'status', btn.statusId);
+        onClose();
+      } catch (err: any) {
+        setActionError(err.message ?? 'Failed to update status');
+      } finally {
+        setLoadingStatusId(null);
+      }
+    }
+  };
+
+  const handleSaveNote = async () => {
+    await onAction(order, 'special_note', undefined, specialNote);
     onClose();
   };
 
-  const handleSaveNote = () => {
-    onAction(order, 'special_note', specialNote);
-    onClose();
+  const handleSaveRemark = async () => {
+    setIsSavingRemark(true);
+    setRemarkError(null);
+    try {
+      const res = await fetch(`http://localhost:8080/api/sales/${order.deliveryId}/remark`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'text/plain' },
+        body: remarkText,
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Server error: ${res.status}`);
+      }
+      onClose();
+    } catch (err: any) {
+      setRemarkError(err.message ?? 'Failed to save remark');
+    } finally {
+      setIsSavingRemark(false);
+    }
   };
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => { if (e.target === e.currentTarget && !isAnyLoading) onClose(); }}
     >
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
 
@@ -316,7 +493,8 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction }: OrderActionModal
           </div>
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
+            disabled={isAnyLoading}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <XIcon className="h-4 w-4" />
           </button>
@@ -331,28 +509,53 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction }: OrderActionModal
             <span className="font-medium text-gray-700">Total:</span> {order.totalAmount.toFixed(2)}
           </div>
           <div className="ml-auto">
-            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(order.status)}`}>
-              {order.status}
+            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(order.statusId)}`}>
+              {statusTypes.find(s => s.statusId === order.statusId)?.statusType ?? order.statusId}
             </span>
           </div>
         </div>
 
-        {/* Action Buttons Grid */}
-        <div className="p-5">
-          {!showNoteInput ? (
-            <div className="grid grid-cols-2 gap-2.5">
-              {actionButtons.map((btn) => (
-                <button
-                  key={btn.action}
-                  onClick={() => handleActionClick(btn.action)}
-                  className={`flex items-center gap-2.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-150 shadow-sm ${btn.color} ${btn.hoverColor} ${btn.textColor} hover:shadow-md active:scale-95`}
-                >
-                  {btn.icon}
-                  <span>{btn.label}</span>
-                </button>
-              ))}
+        {/* Error Banner */}
+        {actionError && (
+          <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
+            <AlertCircleIcon className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-red-700">Status update failed</p>
+              <p className="text-xs text-red-600 mt-0.5 break-words">{actionError}</p>
             </div>
-          ) : (
+            <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">
+              <XIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Action Buttons Grid / Sub-forms */}
+        <div className="p-5">
+          {!showNoteInput && !showRemarkInput ? (
+            <div className="grid grid-cols-2 gap-2.5">
+              {actionButtons.map((btn) => {
+                const isThisLoading = btn.action === 'status' && loadingStatusId === btn.statusId;
+                const disabled = isButtonDisabled(btn);
+                return (
+                  <button
+                    key={btn.label}
+                    onClick={() => handleActionClick(btn)}
+                    disabled={disabled}
+                    title={getButtonTitle(btn)}
+                    className={`flex items-center gap-2.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-150 shadow-sm ${btn.color} ${btn.hoverColor} ${btn.textColor} hover:shadow-md active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100`}
+                  >
+                    {isThisLoading ? (
+                      <RefreshCwIcon className="h-4 w-4 animate-spin" />
+                    ) : (
+                      btn.icon
+                    )}
+                    <span>{isThisLoading ? 'Updating…' : btn.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+          ) : showNoteInput ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                 <FileTextIcon className="h-4 w-4 text-orange-500" />
@@ -382,7 +585,65 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction }: OrderActionModal
                 </button>
               </div>
             </div>
-          )}
+
+          ) : showRemarkInput ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <FileTextIcon className="h-4 w-4 text-violet-500" />
+                Order Remark
+              </div>
+
+              {remarkError && (
+                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+                  <AlertCircleIcon className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+                  <p className="text-xs text-red-600 break-words flex-1">{remarkError}</p>
+                  <button onClick={() => setRemarkError(null)} className="shrink-0 text-red-400 hover:text-red-600">
+                    <XIcon className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {isLoadingRemark ? (
+                <div className="flex items-center justify-center py-6 gap-2 text-gray-400 text-sm">
+                  <RefreshCwIcon className="h-4 w-4 animate-spin text-violet-500" />
+                  Loading remark…
+                </div>
+              ) : (
+                <textarea
+                  value={remarkText}
+                  onChange={(e) => setRemarkText(e.target.value)}
+                  placeholder="Enter remark for this order…"
+                  rows={6}
+                  autoFocus
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none"
+                />
+              )}
+
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => { setShowRemarkInput(false); setRemarkError(null); }}
+                  disabled={isSavingRemark}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleSaveRemark}
+                  disabled={isLoadingRemark || isSavingRemark}
+                  className="flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isSavingRemark ? (
+                    <>
+                      <RefreshCwIcon className="h-3.5 w-3.5 animate-spin" />
+                      Saving…
+                    </>
+                  ) : (
+                    'Save Remark'
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -395,21 +656,43 @@ interface OrderViewModalProps {
   order: Order | null;
   isOpen: boolean;
   onClose: () => void;
+  statusTypes: StatusTypeOption[];
 }
 
-const OrderViewModal = ({ order, isOpen, onClose }: OrderViewModalProps) => {
+const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalProps) => {
+  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [itemsError, setItemsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !order?.deliveryId) return;
+    setOrderItems([]);
+    setItemsError(null);
+    setLoadingItems(true);
+    fetch(`http://localhost:8080/api/sales/delivery-orders/${order.deliveryId}/items`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Status ${res.status}`);
+        return res.json();
+      })
+      .then((data: OrderItem[]) => setOrderItems(data))
+      .catch((err) => setItemsError(err.message ?? 'Failed to load items'))
+      .finally(() => setLoadingItems(false));
+  }, [isOpen, order?.deliveryId]);
+
   if (!isOpen || !order) return null;
 
   const fields = [
-    { label: 'Order Code', value: order.orderCode || '—' },
+    { label: 'Order Code',    value: order.orderCode    || '—' },
     { label: 'Customer Name', value: order.customerName || '—' },
-    { label: 'Phone One', value: order.phoneOne || '—' },
-    { label: 'Phone Two', value: order.phoneTwo || '—' },
-    { label: 'Order Type', value: order.orderType || '—' },
-    { label: 'Date', value: order.date || '—' },
-    { label: 'COD Amount', value: `LKR ${order.cod.toFixed(2)}` },
-    { label: 'Total Amount', value: `LKR ${order.totalAmount.toFixed(2)}` },
+    { label: 'Phone One',     value: order.phoneOne     || '—' },
+    { label: 'Phone Two',     value: order.phoneTwo     || '—' },
+    { label: 'Order Type',    value: order.orderType    || '—' },
+    { label: 'Date',          value: order.date         || '—' },
+    { label: 'COD Amount',    value: `Rs. ${order.cod.toFixed(2)}` },
+    { label: 'Total Amount',  value: `Rs. ${order.totalAmount.toFixed(2)}` },
   ];
+
+  const itemsTotal = orderItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
 
   return (
     <div
@@ -417,13 +700,13 @@ const OrderViewModal = ({ order, isOpen, onClose }: OrderViewModalProps) => {
       style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Header */}
-        <div className="flex items-center justify-between bg-gradient-to-r from-gray-700 to-gray-800 px-5 py-4">
+        <div className="flex items-center justify-between bg-gradient-to-r from-gray-700 to-gray-800 px-5 py-4 shrink-0">
           <div>
             <h3 className="text-base font-bold text-white">Order Details</h3>
-            <p className="text-xs text-gray-300 mt-0.5">{order.orderCode || 'No Code'}</p>
+            <p className="text-xs text-gray-300 mt-0.5">{order.orderCode || 'No Tracking'}</p>
           </div>
           <button
             onClick={onClose}
@@ -433,25 +716,112 @@ const OrderViewModal = ({ order, isOpen, onClose }: OrderViewModalProps) => {
           </button>
         </div>
 
-        {/* Status Banner */}
-        <div className="px-5 pt-4 pb-2 flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-500">Status:</span>
-          <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(order.status)}`}>
-            {order.status}
-          </span>
-        </div>
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1">
 
-        {/* Fields */}
-        <div className="px-5 pb-5 space-y-0 divide-y divide-gray-100">
-          {fields.map((f) => (
-            <div key={f.label} className="flex items-center justify-between py-2.5">
-              <span className="text-xs font-medium text-gray-500">{f.label}</span>
-              <span className="text-sm font-semibold text-gray-800">{f.value}</span>
+          {/* Status Banner */}
+          <div className="px-5 pt-4 pb-2 flex items-center gap-2">
+            <span className="text-xs font-medium text-gray-500">Status:</span>
+            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(order.statusId)}`}>
+              {statusTypes.find(s => s.statusId === order.statusId)?.statusType ?? order.statusId}
+            </span>
+          </div>
+
+          {/* Order Fields */}
+          <div className="px-5 pb-2 space-y-0 divide-y divide-gray-100">
+            {fields.map((f) => (
+              <div key={f.label} className="flex items-center justify-between py-2.5">
+                <span className="text-xs font-medium text-gray-500">{f.label}</span>
+                <span className="text-sm font-semibold text-gray-800">{f.value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Items Section */}
+          <div className="px-5 pb-5 mt-2">
+            <div className="flex items-center gap-2 mb-3 border-t border-gray-100 pt-3">
+              <PackageIcon className="h-4 w-4 text-teal-600" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-teal-800">
+                Order Items
+              </span>
             </div>
-          ))}
+
+            {loadingItems && (
+              <div className="flex items-center justify-center py-6 gap-2 text-gray-400 text-sm">
+                <RefreshCwIcon className="h-4 w-4 animate-spin text-teal-500" />
+                Loading items…
+              </div>
+            )}
+
+            {itemsError && (
+              <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
+                Failed to load items: {itemsError}
+              </div>
+            )}
+
+            {!loadingItems && !itemsError && orderItems.length === 0 && (
+              <div className="text-center py-6 text-xs text-gray-400">
+                No items found for this order.
+              </div>
+            )}
+
+            {!loadingItems && orderItems.length > 0 && (
+              <div className="rounded-lg border border-gray-200 overflow-hidden">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-teal-700">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-white">#</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-white">Item</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-white">Unit</th>
+                      <th className="px-3 py-2 text-center text-xs font-medium text-white">Qty</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Price</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Disc</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {orderItems.map((item, idx) => (
+                      <tr key={item.itemId} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-3 py-2.5 text-xs text-gray-400">{idx + 1}</td>
+                        <td className="px-3 py-2.5 text-xs font-medium text-gray-900">{item.itemName}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-500">{item.unitType}</td>
+                        <td className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700">
+                          <span className="inline-flex items-center justify-center h-5 min-w-[1.25rem] rounded bg-gray-100 px-1.5 text-gray-800">
+                            {item.quantity}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-xs font-semibold text-gray-900">
+                          {item.unitPrice.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-xs text-gray-500">
+                          {item.discount > 0 ? (
+                            <span className="text-red-500">{item.discount.toFixed(2)}</span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                    <tr>
+                      <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-gray-500">
+                        {orderItems.length} item{orderItems.length !== 1 ? 's' : ''} ·{' '}
+                        {orderItems.reduce((sum, i) => sum + i.quantity, 0)} units
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs font-bold text-teal-800">
+                        {itemsTotal.toFixed(2)}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="px-5 pb-5">
+        {/* Footer */}
+        <div className="px-5 py-3 shrink-0 border-t border-gray-100">
           <button
             onClick={onClose}
             className="w-full rounded-lg border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
@@ -492,7 +862,6 @@ export function SalesPage() {
   const [selectedItemId, setSelectedItemId] = useState<number | ''>('');
   const [qty, setQty] = useState(1);
 
-  // Derived: currently selected item object
   const selectedItem = items.find((i) => i.itemId === selectedItemId) ?? null;
 
   // ── Left Column: Cart & discounts ──
@@ -500,13 +869,24 @@ export function SalesPage() {
   const [discountMode, setDiscountMode] = useState<'full' | 'item'>('full');
   const [fullOrderDiscount, setFullOrderDiscount] = useState(0);
 
+  // ── Order types & payment types from API ──
+  const [orderTypes, setOrderTypes] = useState<OrderTypeOption[]>([]);
+  const [paymentTypeOptions, setPaymentTypeOptions] = useState<PaymentTypeOption[]>([]);
+  const [statusTypes, setStatusTypes] = useState<StatusTypeOption[]>([]);
+
   // ── Left Column: Order details ──
-  const [orderType, setOrderType] = useState('WhatsApp');
+  const [orderType, setOrderType] = useState('');
   const [weight, setWeight] = useState(0);
-  const [paymentType, setPaymentType] = useState('Cash');
+  const [paymentType, setPaymentType] = useState('');
   const [paidAmount, setPaidAmount] = useState(0);
   const [isExchange, setIsExchange] = useState(false);
   const [isFreeShip, setIsFreeShip] = useState(false);
+
+  // ── Edit mode: track which deliveryId is being edited ──
+  const [editingDeliveryId, setEditingDeliveryId] = useState<number | null>(null);
+  const [editingStatusId, setEditingStatusId] = useState<number>(2);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // ── Right Column: Orders ──
   const [orders, setOrders] = useState<Order[]>([]);
@@ -521,14 +901,82 @@ export function SalesPage() {
   const [actionModalOrder, setActionModalOrder] = useState<Order | null>(null);
   const [viewModalOrder, setViewModalOrder] = useState<Order | null>(null);
 
+  // ── Delivery fee config ──
+  const [baseDeliveryFee, setBaseDeliveryFee] = useState(0);
+  const [addCostPerKg, setAddCostPerKg] = useState(0);
+
+  // ── Fetch delivery config ─────────────────────────────────────────────────
+
+  useEffect(() => {
+    const fetchDeliveryConfig = async () => {
+      try {
+        const [feeRes, perKgRes] = await Promise.all([
+          fetch('http://localhost:8080/api/config/delivery-fee'),
+          fetch('http://localhost:8080/api/config/add-cost-per-kg'),
+        ]);
+        if (feeRes.ok) {
+          const feeText = await feeRes.text();
+          setBaseDeliveryFee(parseFloat(feeText) || 0);
+        }
+        if (perKgRes.ok) {
+          const perKgText = await perKgRes.text();
+          setAddCostPerKg(parseFloat(perKgText) || 0);
+        }
+      } catch (err) {
+        console.error('Failed to fetch delivery config:', err);
+      }
+    };
+    fetchDeliveryConfig();
+  }, []);
+
+  // ── Fetch order types & payment types ────────────────────────────────────
+
+  useEffect(() => {
+    const fetchDropdowns = async () => {
+      try {
+        const [otRes, ptRes] = await Promise.all([
+          fetch('http://localhost:8080/api/order-types'),
+          fetch('http://localhost:8080/api/payment-types'),
+        ]);
+        if (otRes.ok) {
+          const otData: OrderTypeOption[] = await otRes.json();
+          const active = otData.filter((o) => o.status === 1);
+          setOrderTypes(active);
+          if (active.length > 0) setOrderType(active[0].type);
+        }
+        if (ptRes.ok) {
+          const ptData: PaymentTypeOption[] = await ptRes.json();
+          const active = ptData.filter((p) => p.status === 1 && p.visible === 1);
+          setPaymentTypeOptions(active);
+          if (active.length > 0) setPaymentType(active[0].paymentType);
+        }
+        const stRes = await fetch('http://localhost:8080/api/status/types/1');
+        if (stRes.ok) {
+          const stData: StatusTypeOption[] = await stRes.json();
+          setStatusTypes(stData.filter((s) => s.status === 1));
+        }
+      } catch (err) {
+        console.error('Failed to fetch dropdowns:', err);
+      }
+    };
+    fetchDropdowns();
+  }, []);
+
   // ── Calculations ──
   const subTotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0);
   const totalDiscount =
     discountMode === 'full'
       ? fullOrderDiscount
       : cart.reduce((sum, item) => sum + item.discount, 0);
-  const deliveryFee = isFreeShip ? 0 : 400;
+
+  const weightKg = weight > 0 ? Math.max(1, Math.ceil(weight / 1000)) : 1;
+  const calculatedDeliveryFee = baseDeliveryFee + (weightKg - 1) * addCostPerKg;
+  const deliveryFee = isFreeShip ? 0 : calculatedDeliveryFee;
   const grandTotal = subTotal - totalDiscount + deliveryFee;
+
+  // Resolve paymentTypeId from selected paymentType string
+  const resolvedPaymentTypeId =
+    paymentTypeOptions.find((pt) => pt.paymentType === paymentType)?.paymentTypeId ?? 1;
 
   // ── Fetch items ───────────────────────────────────────────────────────────
 
@@ -538,7 +986,6 @@ export function SalesPage() {
       const res = await fetch('http://localhost:8080/api/items');
       if (!res.ok) throw new Error(`Failed to fetch items: ${res.status}`);
       const data: Item[] = await res.json();
-      // Only show items that are active (status=1, sellingStatus=1)
       const active = data.filter((i) => i.status === 1 && i.sellingStatus === 1);
       setItems(active);
       if (active.length > 0) setSelectedItemId(active[0].itemId);
@@ -699,6 +1146,27 @@ export function SalesPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // ── Reset form ────────────────────────────────────────────────────────────
+
+  const resetForm = () => {
+    setEditingDeliveryId(null);
+    setEditingStatusId(2);
+    setCart([]);
+    setCustomerName('');
+    setPhone('');
+    setPhoneTwo('');
+    setCustomerNumber('');
+    setAddress('');
+    setRemark('');
+    setOrderCode('');
+    setFullOrderDiscount(0);
+    setIsFreeShip(false);
+    setIsExchange(false);
+    setWeight(0);
+    setPaidAmount(0);
+    setSaveError(null);
+  };
+
   // ── Cart handlers ─────────────────────────────────────────────────────────
 
   const handleAddItem = () => {
@@ -708,7 +1176,6 @@ export function SalesPage() {
     const existingIndex = cart.findIndex((c) => c.itemId === selectedItem.itemId);
 
     if (existingIndex !== -1) {
-      // Same item already in cart — just increment qty and recalc amount
       setCart((prev) =>
         prev.map((c, i) => {
           if (i !== existingIndex) return c;
@@ -718,13 +1185,13 @@ export function SalesPage() {
         })
       );
     } else {
-      // New item — add fresh row
       const lineTotal = selectedItem.unitPrice * qty - itemDiscount;
       const newItem: CartItem = {
         id: Date.now().toString(),
         itemId: selectedItem.itemId,
+        itemBarCode: selectedItem.itemBarCode,
         itemWeight: selectedItem.weight,
-        name: `${selectedItem.itemName} (${selectedItem.itemCodePrefix})`,
+        name: `${selectedItem.itemName}`,
         qty,
         unitPrice: selectedItem.unitPrice,
         discount: itemDiscount,
@@ -733,7 +1200,6 @@ export function SalesPage() {
       setCart((prev) => [...prev, newItem]);
     }
 
-    // Accumulate weight regardless of new/existing
     setWeight((prev) => prev + selectedItem.weight * qty);
   };
 
@@ -755,69 +1221,205 @@ export function SalesPage() {
     );
   };
 
-  // ── Save order ────────────────────────────────────────────────────────────
+  // ── Build API payload ─────────────────────────────────────────────────────
 
-  const handleSaveOrder = () => {
-    if (cart.length === 0) { alert('Cart is empty!'); return; }
-    const newOrder: Order = {
-      orderCode,
-      customerName: customerName || 'Walk-in Customer',
+  const buildPayload = () => {
+    const codAmount = paymentType === 'Cash' ? grandTotal - paidAmount : 0;
+
+    const apiItems = cart.map((c) => {
+      const perItemDiscount = discountMode === 'item' ? c.discount : 0;
+      return {
+        itemId: c.itemId,
+        itemBarCode: c.itemBarCode,
+        quantity: c.qty,
+        perItemPrice: c.unitPrice,
+        totalDiscountPrice: perItemDiscount,
+        totalItemPrice: c.unitPrice * c.qty - perItemDiscount,
+        remark: '',
+      };
+    });
+
+    return {
+      customerName,
       phoneOne: phone,
       phoneTwo,
-      cod: paymentType === 'Cash' ? grandTotal - paidAmount : 0,
-      totalAmount: grandTotal,
+      address,
+      customerNumber,
+      codAmount,
+      weight: String(weight),
+      remark,
       orderType,
-      date: getTodayStr(),
-      status: 'Pending',
+      isFreeDelivery: isFreeShip ? 1 : 0,
+      isReturn: 0,
+      isExchange: isExchange ? 1 : 0,
+      userId: 1,
+      statusId: editingDeliveryId ? editingStatusId : 2,
+      subTotalPrice: subTotal,
+      totalDiscountPrice: totalDiscount,
+      deliveryFee,
+      totalOrderPrice: grandTotal,
+      paidAmount,
+      paymentTypeId: resolvedPaymentTypeId,
+      items: apiItems,
     };
-    setOrders([newOrder, ...orders]);
-    setCart([]);
-    setCustomerName('');
-    setPhone('');
-    setPhoneTwo('');
-    setAddress('');
-    setOrderCode(`ORD-2026-00${orders.length + 7}`);
-    setFullOrderDiscount(0);
-    setIsFreeShip(false);
-    setWeight(0);
   };
 
-  // ── Modal action handler ───────────────────────────────────────────────────
+  // ── Save / Update order ───────────────────────────────────────────────────
 
-  const handleOrderAction = (order: Order, action: string, note?: string) => {
-    if (action === 'edit') {
-      setOrderCode(order.orderCode);
-      setCustomerName(order.customerName);
-      setPhone(order.phoneOne);
-      setPhoneTwo(order.phoneTwo);
-      setOrderType(order.orderType);
-      return;
+  const handleSaveOrder = async () => {
+    if (cart.length === 0) { alert('Cart is empty!'); return; }
+    setSaveError(null);
+    setIsSaving(true);
+
+    try {
+      const isUpdate = editingDeliveryId !== null;
+      const url = isUpdate
+        ? 'http://localhost:8080/api/orders/update'
+        : 'http://localhost:8080/api/orders/create';
+      const method = isUpdate ? 'PUT' : 'POST';
+
+      const payload = {
+        ...buildPayload(),
+        ...(isUpdate
+          ? { deliveryId: editingDeliveryId, orderCode }
+          : {}),
+      };
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Server error: ${res.status}`);
+      }
+
+      await fetchOrders();
+      resetForm();
+    } catch (err: any) {
+      setSaveError(err.message ?? 'Failed to save order');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ── Edit order: fetch order details + items, populate form ────────────────
+
+  const handleEditOrder = useCallback(async (order: Order) => {
+    setEditingDeliveryId(order.deliveryId);
+    setEditingStatusId(order.statusId);
+    setOrderCode(order.orderCode);
+    setCustomerName(order.customerName);
+    setPhone(order.phoneOne);
+    setPhoneTwo(order.phoneTwo);
+    setOrderType(order.orderType);
+    setSaveError(null);
+
+    try {
+      const detailRes = await fetch(
+        `http://localhost:8080/api/sales/delivery-orders?startDate=2020-01-01&endDate=${getTodayStr()}`
+      );
+      if (detailRes.ok) {
+        const allData: DeliveryOrderResponse[] = await detailRes.json();
+        const found = allData.find((d) => d.deliveryId === order.deliveryId);
+        if (found) {
+          setAddress(found.address ?? '');
+          setCustomerNumber(found.customerNumber ?? '');
+          setRemark(found.remark ?? '');
+          setPaidAmount(found.paidAmount ?? 0);
+          setIsFreeShip(found.isFreeDelivery === 1);
+          setIsExchange(found.isExchange === 1);
+          const matchedPt = paymentTypeOptions.find(
+            (pt) => pt.paymentTypeId === found.paymentTypeId
+          );
+          if (matchedPt) setPaymentType(matchedPt.paymentType);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load order detail:', err);
     }
 
-    const statusMap: Record<string, string> = {
-      delivered: 'Delivered',
-      returned: 'Returned',
-      returning: 'Returning',
-      cancel: 'Cancelled',
-      despatch: 'Dispatched',
-      pending: 'Pending',
-      wrapping: 'Wrapping',
-      checking: 'Checking',
-      special_note: order.status,
-    };
+    try {
+      const itemsRes = await fetch(
+        `http://localhost:8080/api/sales/delivery-orders/${order.deliveryId}/items`
+      );
+      if (!itemsRes.ok) throw new Error(`Status ${itemsRes.status}`);
+      const orderItems: OrderItem[] = await itemsRes.json();
 
-    const newStatus = statusMap[action] ?? order.status;
+      let totalWeightG = 0;
+      const cartItems: CartItem[] = orderItems.map((oi) => {
+        const lineDiscount = oi.discount ?? 0;
+        const lineAmount = oi.unitPrice * oi.quantity - lineDiscount;
+        totalWeightG += (oi.weight ?? 0) * oi.quantity;
+        return {
+          id: `edit-${oi.itemId}-${Date.now()}`,
+          itemId: oi.itemId,
+          itemBarCode: oi.itemBarCode ?? 0,
+          itemWeight: oi.weight ?? 0,
+          name: `${oi.itemName} (${oi.itemCodePrefix})`,
+          qty: oi.quantity,
+          unitPrice: oi.unitPrice,
+          discount: lineDiscount,
+          amount: lineAmount > 0 ? lineAmount : 0,
+        };
+      });
+
+      setCart(cartItems);
+      setWeight(totalWeightG);
+    } catch (err) {
+      console.error('Failed to load order items for edit:', err);
+      setCart([]);
+      setWeight(0);
+    }
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [paymentTypeOptions]);
+
+  // ── Update order status via API ───────────────────────────────────────────
+
+  const handleUpdateOrderStatus = useCallback(async (order: Order, statusId: number): Promise<void> => {
+    const res = await fetch(
+      `http://localhost:8080/api/sales/${order.deliveryId}/status?statusId=${statusId}`,
+      { method: 'PATCH' }
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText || `Server error: ${res.status}`);
+    }
 
     setOrders((prev) =>
       prev.map((o) =>
-        o.orderCode === order.orderCode ? { ...o, status: newStatus } : o
+        o.deliveryId === order.deliveryId ? { ...o, statusId } : o
       )
     );
+  }, []);
 
-    if (action === 'special_note' && note) {
-      console.log(`Special note for ${order.orderCode}: ${note}`);
+  // ── Modal action handler ──────────────────────────────────────────────────
+
+  const handleOrderAction = useCallback(async (
+    order: Order,
+    action: string,
+    statusId?: number,
+    note?: string
+  ): Promise<void> => {
+    if (action === 'edit') {
+      setActionModalOrder(null);
+      await handleEditOrder(order);
+      return;
     }
-  };
+
+    if (action === 'special_note') {
+      if (note) console.log(`Special note for ${order.orderCode}: ${note}`);
+      return;
+    }
+
+    if (action === 'status' && statusId !== undefined) {
+      await handleUpdateOrderStatus(order, statusId);
+    }
+  }, [handleEditOrder, handleUpdateOrderStatus]);
 
   // ── Table columns ─────────────────────────────────────────────────────────
 
@@ -833,8 +1435,8 @@ export function SalesPage() {
     {
       header: 'Status',
       accessor: (row) => (
-        <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${statusBadgeClass(row.status)}`}>
-          {row.status}
+        <span className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${statusBadgeClass(row.statusId)}`}>
+          {statusTypes.find(s => s.statusId === row.statusId)?.statusType ?? row.statusId}
         </span>
       ),
     },
@@ -871,11 +1473,13 @@ export function SalesPage() {
         isOpen={!!actionModalOrder}
         onClose={() => setActionModalOrder(null)}
         onAction={handleOrderAction}
+        statusTypes={statusTypes}
       />
       <OrderViewModal
         order={viewModalOrder}
         isOpen={!!viewModalOrder}
         onClose={() => setViewModalOrder(null)}
+        statusTypes={statusTypes}
       />
 
       <div className="flex h-[calc(100vh-4rem)] flex-col lg:flex-row gap-4 p-3 overflow-hidden bg-gray-50">
@@ -884,6 +1488,39 @@ export function SalesPage() {
             LEFT COLUMN: Order Form (30%)
         ════════════════════════════════════════════════ */}
         <div className="flex w-full flex-col gap-4 lg:w-[30%] overflow-y-auto custom-scrollbar">
+
+          {/* Edit Mode Banner */}
+          {editingDeliveryId !== null && (
+            <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <PencilIcon className="h-4 w-4 text-blue-600" />
+                <span className="text-xs font-semibold text-blue-700">
+                  Editing Order: <span className="font-bold">{orderCode || `#${editingDeliveryId}`}</span>
+                </span>
+              </div>
+              <button
+                onClick={resetForm}
+                className="flex items-center gap-1 rounded-md border border-blue-300 bg-white px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 transition-colors"
+              >
+                <XIcon className="h-3 w-3" />
+                Cancel Edit
+              </button>
+            </div>
+          )}
+
+          {/* Save Error Banner */}
+          {saveError && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
+              <AlertCircleIcon className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-red-700">Save failed</p>
+                <p className="text-xs text-red-600 mt-0.5 break-words">{saveError}</p>
+              </div>
+              <button onClick={() => setSaveError(null)} className="shrink-0 text-red-400 hover:text-red-600">
+                <XIcon className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
 
           {/* ── Customer Section ── */}
           <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -931,10 +1568,11 @@ export function SalesPage() {
                         <div
                           key={d.customerId ?? d.phoneOne}
                           onMouseDown={() => handleSelectSuggestion(d)}
-                          className={`flex flex-col px-3 py-2 cursor-pointer transition-colors ${index === activeSuggestion
+                          className={`flex flex-col px-3 py-2 cursor-pointer transition-colors ${
+                            index === activeSuggestion
                               ? 'bg-teal-50 border-l-2 border-teal-500'
                               : 'hover:bg-gray-50'
-                            }`}
+                          }`}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-sm font-semibold text-gray-900 truncate">{d.customerName}</span>
@@ -979,7 +1617,12 @@ export function SalesPage() {
             <div className="mt-3 flex justify-end gap-2">
               <button className="rounded-md bg-pink-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-pink-600">Check</button>
               <button className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700">Edit</button>
-              <button className="rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900">Clear</button>
+              <button
+                onClick={resetForm}
+                className="rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900"
+              >
+                Clear
+              </button>
             </div>
           </div>
 
@@ -987,7 +1630,6 @@ export function SalesPage() {
           <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="space-y-2 mb-3">
 
-              {/* Item dropdown */}
               <FieldRow label="Select Item">
                 {isLoadingItems ? (
                   <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
@@ -1002,30 +1644,12 @@ export function SalesPage() {
                   >
                     {items.map((item) => (
                       <option key={item.itemId} value={item.itemId}>
-                        {item.itemName} ({item.itemCodePrefix})
+                        {item.itemName}
                       </option>
                     ))}
                   </select>
                 )}
               </FieldRow>
-
-              {/* Read-only info strip for selected item */}
-              {selectedItem && (
-                <div className="grid grid-cols-3 gap-2 rounded-lg bg-teal-50 border border-teal-100 px-3 py-2">
-                  <div className="text-center">
-                    <p className="text-xs text-gray-500">Unit Price</p>
-                    <p className="text-sm font-bold text-teal-700">{selectedItem.unitPrice.toFixed(2)}</p>
-                  </div>
-                  <div className="text-center border-x border-teal-200">
-                    <p className="text-xs text-gray-500">Discount</p>
-                    <p className="text-sm font-bold text-teal-700">{selectedItem.discount.toFixed(2)}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-gray-500">Weight ({selectedItem.unitType})</p>
-                    <p className="text-sm font-bold text-teal-700">{selectedItem.weight}g</p>
-                  </div>
-                </div>
-              )}
 
               <FieldRow label="Qty">
                 <input
@@ -1039,7 +1663,11 @@ export function SalesPage() {
             </div>
 
             <div className="flex gap-2 border-b border-gray-100 pb-3">
-              <button onClick={() => { setCart([]); setWeight(0); }} className="flex items-center rounded-md bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600" title="Clear all cart items and reset weight">
+              <button
+                onClick={() => { setCart([]); setWeight(0); }}
+                className="flex items-center rounded-md bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600"
+                title="Clear all cart items and reset weight"
+              >
                 <Trash2Icon className="mr-1.5 h-3.5 w-3.5" /> Remove All
               </button>
               <button
@@ -1126,11 +1754,22 @@ export function SalesPage() {
 
             {/* Order Details */}
             <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-2">
+
               <FieldRow label="Order Type">
-                <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className={selectCls}>
-                  <option value="WhatsApp">WhatsApp</option>
-                  <option value="Website">Website</option>
-                  <option value="In-Store">In-Store</option>
+                <select
+                  value={orderType}
+                  onChange={(e) => setOrderType(e.target.value)}
+                  className={selectCls}
+                >
+                  {orderTypes.length === 0 ? (
+                    <option value="">Loading…</option>
+                  ) : (
+                    orderTypes.map((ot) => (
+                      <option key={ot.id} value={ot.type}>
+                        {ot.type}
+                      </option>
+                    ))
+                  )}
                 </select>
               </FieldRow>
 
@@ -1138,16 +1777,27 @@ export function SalesPage() {
                 <input
                   type="number"
                   value={weight}
+                  readOnly
                   onChange={(e) => setWeight(parseInt(e.target.value) || 0)}
-                  className={inputCls}
+                  className='h-9 w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-600'
                 />
               </FieldRow>
 
               <FieldRow label="Payment Type">
-                <select value={paymentType} onChange={(e) => setPaymentType(e.target.value)} className={selectCls}>
-                  <option value="Cash">Cash</option>
-                  <option value="Card">Card</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
+                <select
+                  value={paymentType}
+                  onChange={(e) => setPaymentType(e.target.value)}
+                  className={selectCls}
+                >
+                  {paymentTypeOptions.length === 0 ? (
+                    <option value="">Loading…</option>
+                  ) : (
+                    paymentTypeOptions.map((pt) => (
+                      <option key={pt.paymentTypeId} value={pt.paymentType}>
+                        {pt.paymentType}
+                      </option>
+                    ))
+                  )}
                 </select>
               </FieldRow>
 
@@ -1176,11 +1826,21 @@ export function SalesPage() {
 
               <div className="flex gap-4 pt-2 border-t border-gray-100">
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={isExchange} onChange={(e) => setIsExchange(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                  <input
+                    type="checkbox"
+                    checked={isExchange}
+                    onChange={(e) => setIsExchange(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                  />
                   <span className="text-xs text-gray-700">Exchange</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={isFreeShip} onChange={(e) => setIsFreeShip(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                  <input
+                    type="checkbox"
+                    checked={isFreeShip}
+                    onChange={(e) => setIsFreeShip(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                  />
                   <span className="text-xs font-medium text-gray-700">Free Ship</span>
                 </label>
               </div>
@@ -1208,8 +1868,21 @@ export function SalesPage() {
                   )}
                 </div>
                 <div className="flex justify-between items-center text-sm">
-                  <span className="font-medium text-green-700">Delivery Fee :</span>
-                  <span className="font-bold text-green-700">{deliveryFee.toFixed(2)}</span>
+                  <span className="font-medium text-green-700">
+                    Delivery Fee
+                    {!isFreeShip && (
+                      <span className="ml-1 text-xs text-gray-400 font-normal">
+                        ({weightKg}kg)
+                      </span>
+                    )}
+                    :
+                  </span>
+                  <span className="font-bold text-green-700">
+                    {isFreeShip ? (
+                      <span className="line-through text-gray-400 mr-1 text-xs">{calculatedDeliveryFee.toFixed(2)}</span>
+                    ) : null}
+                    {deliveryFee.toFixed(2)}
+                  </span>
                 </div>
                 <div className="pt-3 border-t border-teal-200 flex justify-between items-center text-base">
                   <span className="font-bold text-red-600">Grand Total :</span>
@@ -1218,9 +1891,17 @@ export function SalesPage() {
               </div>
               <button
                 onClick={handleSaveOrder}
-                className="mt-4 w-full rounded-lg bg-teal-600 py-2.5 text-sm font-bold text-white shadow-md transition-colors hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2"
+                disabled={isSaving}
+                className="mt-4 w-full rounded-lg bg-teal-600 py-2.5 text-sm font-bold text-white shadow-md transition-colors hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Save Order
+                {isSaving ? (
+                  <>
+                    <RefreshCwIcon className="h-4 w-4 animate-spin" />
+                    {editingDeliveryId ? 'Updating…' : 'Saving…'}
+                  </>
+                ) : (
+                  editingDeliveryId ? '✏️ Update Order' : '💾 Save Order'
+                )}
               </button>
             </div>
           </div>

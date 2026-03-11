@@ -13,6 +13,7 @@
   "build": {
     "appId": "lk.petalpink.pos",
     "productName": "Petal Pink POS",
+    "icon": "assets/gold_tra.a22f21fa01c3f6347786.ico",
     "win": {
       "target": "nsis"
     },
@@ -34,10 +35,11 @@
   },
   "dependencies": {
     "@emotion/react": "^11.13.3",
-    "lucide-react": "0.522.0",
+    "lucide-react": "^0.522.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.2"
+    "react-router-dom": "^6.26.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20.11.18",

@@ -1,22 +1,28 @@
 import React, { useEffect, useState } from 'react';
+
 interface TopBarProps {
   title: string;
   userName: string;
 }
+
 export function TopBar({ title, userName }: TopBarProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
+
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
   const formatDate = (date: Date) => {
     return date.toISOString().split('T')[0];
   };
+
   const formatTime = (date: Date) => {
     return date.toTimeString().split(' ')[0];
   };
+
   return (
     <header className="flex h-16 items-center justify-between bg-gradient-to-r from-teal-700 to-teal-600 px-6 shadow-md">
       <div className="flex items-center">
@@ -35,6 +41,6 @@ export function TopBar({ title, userName }: TopBarProps) {
           <span className="text-white">{userName}</span>
         </div>
       </div>
-    </header>);
-
+    </header>
+  );
 }
