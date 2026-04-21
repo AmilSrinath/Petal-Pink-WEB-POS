@@ -35,6 +35,24 @@ interface Item {
   itemCodePrefix: string;
   sellingStatus: number;
   status: number;
+  subItemCategoryId: number;
+  mainItemCategoryId: number;
+}
+
+interface SubItemCategoryDTO {
+  subItemCategoryId: number;
+  subItemCategoryName: string;
+  mainItemCategoryId: number;
+  mainItemCategoryName: string;
+  imagePath: string;
+  status: number;
+  userId: number;
+  visible: number;
+}
+
+interface SubItemCategory {
+  subItemCategoryId: number;
+  subItemCategoryName: string;
 }
 
 interface CartItem {
@@ -173,27 +191,15 @@ const isSuperAdmin = (): boolean => {
   }
 };
 
-/**
- * Returns true if the status transition is allowed for the current user.
- * Super Admin bypasses all restrictions.
- *
- * Allowed flows for non-admin:
- *   Pending (2)   → Wrapping (3)
- *   Wrapping (3)  → Despatch (4)
- *   Despatch (4)  → Delivered (5)
- *   Returning (12)→ Return (6)
- *   Delivered (5) → nothing
- *   Cancel (7)    → nothing
- */
 const isStatusButtonAllowed = (currentStatusId: number, targetStatusId: number): boolean => {
   if (isSuperAdmin()) return true;
   if (currentStatusId === 5 || currentStatusId === 7) return false;
 
   const allowedNext: Record<number, number> = {
-    2:  3,   // Pending   → Wrapping
-    3:  4,   // Wrapping  → Despatch
-    4:  5,   // Despatch  → Delivered
-    12: 6,   // Returning → Return
+    2:  3,
+    3:  4,
+    4:  5,
+    12: 6,
   };
 
   return allowedNext[currentStatusId] === targetStatusId;
@@ -342,7 +348,6 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
   const [specialNote, setSpecialNote] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
 
-  // ── Remark state ──
   const [showRemarkInput, setShowRemarkInput] = useState(false);
   const [remarkText, setRemarkText] = useState('');
   const [isLoadingRemark, setIsLoadingRemark] = useState(false);
@@ -370,19 +375,15 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
 
   const isAnyLoading = loadingStatusId !== null || isLoadingRemark || isSavingRemark;
 
-  // ── Role-based disable logic ──────────────────────────────────────────────
   const isButtonDisabled = (btn: ActionButton): boolean => {
     if (isAnyLoading) return true;
-
     if (btn.action === 'status' && btn.statusId !== undefined) {
       if (btn.statusId === 13 && !order?.orderCode?.trim()) return true;
-      if (!isStatusButtonAllowed(order.statusId, btn.statusId)) return true; // ← skipped for Super Admin
+      if (!isStatusButtonAllowed(order.statusId, btn.statusId)) return true;
     }
-
     if (btn.action === 'edit' && !isSuperAdmin()) {
       if (order.statusId === 4 || order.statusId === 5 || order.statusId === 7) return true;
     }
-
     return false;
   };
 
@@ -435,6 +436,29 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
       return;
     }
 
+    if (btn.action === 'status' && btn.statusId === 3) {
+      setLoadingStatusId(3);
+      setActionError(null);
+      try {
+        const res = await fetch(
+          `http://localhost:8080/api/sales/${order.deliveryId}/generate-tracking`,
+          { method: 'POST' }
+        );
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || `Server error: ${res.status}`);
+        }
+        const trackingCode = await res.text();
+        await onAction(order, 'wrapping', 3, trackingCode);
+        onClose();
+      } catch (err: any) {
+        setActionError(err.message ?? 'Failed to generate tracking');
+      } finally {
+        setLoadingStatusId(null);
+      }
+      return;
+    }
+
     if (btn.action === 'status' && btn.statusId !== undefined) {
       setLoadingStatusId(btn.statusId);
       setActionError(null);
@@ -483,7 +507,6 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
     >
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
 
-        {/* Modal Header */}
         <div className="flex items-center justify-between bg-gradient-to-r from-teal-600 to-teal-700 px-5 py-4">
           <div>
             <h3 className="text-base font-bold text-white">Order Actions</h3>
@@ -500,7 +523,6 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
           </button>
         </div>
 
-        {/* Order Info Strip */}
         <div className="flex items-center gap-4 bg-gray-50 border-b border-gray-100 px-5 py-3">
           <div className="text-xs text-gray-500">
             <span className="font-medium text-gray-700">Phone:</span> {order.phoneOne || '—'}
@@ -515,7 +537,6 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
           </div>
         </div>
 
-        {/* Error Banner */}
         {actionError && (
           <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
             <AlertCircleIcon className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
@@ -529,7 +550,6 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
           </div>
         )}
 
-        {/* Action Buttons Grid / Sub-forms */}
         <div className="p-5">
           {!showNoteInput && !showRemarkInput ? (
             <div className="grid grid-cols-2 gap-2.5">
@@ -702,7 +722,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
     >
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
-        {/* Header */}
         <div className="flex items-center justify-between bg-gradient-to-r from-gray-700 to-gray-800 px-5 py-4 shrink-0">
           <div>
             <h3 className="text-base font-bold text-white">Order Details</h3>
@@ -716,10 +735,8 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
           </button>
         </div>
 
-        {/* Scrollable body */}
         <div className="overflow-y-auto flex-1">
 
-          {/* Status Banner */}
           <div className="px-5 pt-4 pb-2 flex items-center gap-2">
             <span className="text-xs font-medium text-gray-500">Status:</span>
             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(order.statusId)}`}>
@@ -727,7 +744,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
             </span>
           </div>
 
-          {/* Order Fields */}
           <div className="px-5 pb-2 space-y-0 divide-y divide-gray-100">
             {fields.map((f) => (
               <div key={f.label} className="flex items-center justify-between py-2.5">
@@ -737,7 +753,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
             ))}
           </div>
 
-          {/* Items Section */}
           <div className="px-5 pb-5 mt-2">
             <div className="flex items-center gap-2 mb-3 border-t border-gray-100 pt-3">
               <PackageIcon className="h-4 w-4 text-teal-600" />
@@ -820,7 +835,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
           </div>
         </div>
 
-        {/* Footer */}
         <div className="px-5 py-3 shrink-0 border-t border-gray-100">
           <button
             onClick={onClose}
@@ -856,13 +870,17 @@ export function SalesPage() {
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Items from API ──
+  // ── Items & Categories ──
   const [items, setItems] = useState<Item[]>([]);
+  const [subCategories, setSubCategories] = useState<SubItemCategory[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | ''>('');
+  const [filteredItems, setFilteredItems] = useState<Item[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<number | ''>('');
   const [qty, setQty] = useState(1);
 
-  const selectedItem = items.find((i) => i.itemId === selectedItemId) ?? null;
+  // selectedItem always reads from filteredItems
+  const selectedItem = filteredItems.find((i) => i.itemId === selectedItemId) ?? null;
 
   // ── Left Column: Cart & discounts ──
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -882,7 +900,7 @@ export function SalesPage() {
   const [isExchange, setIsExchange] = useState(false);
   const [isFreeShip, setIsFreeShip] = useState(false);
 
-  // ── Edit mode: track which deliveryId is being edited ──
+  // ── Edit mode ──
   const [editingDeliveryId, setEditingDeliveryId] = useState<number | null>(null);
   const [editingStatusId, setEditingStatusId] = useState<number>(2);
   const [isSaving, setIsSaving] = useState(false);
@@ -974,21 +992,72 @@ export function SalesPage() {
   const deliveryFee = isFreeShip ? 0 : calculatedDeliveryFee;
   const grandTotal = subTotal - totalDiscount + deliveryFee;
 
-  // Resolve paymentTypeId from selected paymentType string
   const resolvedPaymentTypeId =
     paymentTypeOptions.find((pt) => pt.paymentType === paymentType)?.paymentTypeId ?? 1;
 
-  // ── Fetch items ───────────────────────────────────────────────────────────
+  // ── Category change handler ───────────────────────────────────────────────
+
+  const handleCategoryChange = useCallback((catId: number | '') => {
+    setSelectedCategoryId(catId);
+    if (catId === '') {
+      // "All Categories" — show every active item
+      setFilteredItems(items);
+      if (items.length > 0) setSelectedItemId(items[0].itemId);
+      else setSelectedItemId('');
+    } else {
+      const filtered = items.filter((i) => i.subItemCategoryId === Number(catId));
+      setFilteredItems(filtered);
+      if (filtered.length > 0) setSelectedItemId(filtered[0].itemId);
+      else setSelectedItemId('');
+    }
+  }, [items]);
+
+  // ── Fetch items + categories (parallel) ──────────────────────────────────
 
   const fetchItems = useCallback(async () => {
     setIsLoadingItems(true);
     try {
-      const res = await fetch('http://localhost:8080/api/items');
-      if (!res.ok) throw new Error(`Failed to fetch items: ${res.status}`);
-      const data: Item[] = await res.json();
+      const [itemsRes, catsRes] = await Promise.all([
+        fetch('http://localhost:8080/api/items'),
+        fetch('http://localhost:8080/api/sub-item-category'),
+      ]);
+
+      if (!itemsRes.ok) throw new Error(`Failed to fetch items: ${itemsRes.status}`);
+      const data: Item[] = await itemsRes.json();
       const active = data.filter((i) => i.status === 1 && i.sellingStatus === 1);
       setItems(active);
-      if (active.length > 0) setSelectedItemId(active[0].itemId);
+
+      if (catsRes.ok) {
+        const allCats: SubItemCategoryDTO[] = await catsRes.json();
+
+        // Only show categories that have at least one active item
+        const usedCatIds = new Set(active.map((i) => i.subItemCategoryId));
+        const relevantCats: SubItemCategory[] = allCats
+          .filter((c) => c.status === 1 && usedCatIds.has(c.subItemCategoryId))
+          .map((c) => ({
+            subItemCategoryId: c.subItemCategoryId,
+            subItemCategoryName: c.subItemCategoryName,
+          }));
+
+        setSubCategories(relevantCats);
+
+        // Auto-select first category
+        if (relevantCats.length > 0) {
+          const firstCatId = relevantCats[0].subItemCategoryId;
+          setSelectedCategoryId(firstCatId);
+          const filtered = active.filter((i) => i.subItemCategoryId === firstCatId);
+          setFilteredItems(filtered);
+          if (filtered.length > 0) setSelectedItemId(filtered[0].itemId);
+        } else {
+          // No categories at all — show all items
+          setFilteredItems(active);
+          if (active.length > 0) setSelectedItemId(active[0].itemId);
+        }
+      } else {
+        // Category API failed — fall back to all items
+        setFilteredItems(active);
+        if (active.length > 0) setSelectedItemId(active[0].itemId);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -1305,7 +1374,7 @@ export function SalesPage() {
     }
   };
 
-  // ── Edit order: fetch order details + items, populate form ────────────────
+  // ── Edit order ────────────────────────────────────────────────────────────
 
   const handleEditOrder = useCallback(async (order: Order) => {
     setEditingDeliveryId(order.deliveryId);
@@ -1377,19 +1446,17 @@ export function SalesPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [paymentTypeOptions]);
 
-  // ── Update order status via API ───────────────────────────────────────────
+  // ── Update order status ───────────────────────────────────────────────────
 
   const handleUpdateOrderStatus = useCallback(async (order: Order, statusId: number): Promise<void> => {
     const res = await fetch(
       `http://localhost:8080/api/sales/${order.deliveryId}/status?statusId=${statusId}`,
       { method: 'PATCH' }
     );
-
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(errText || `Server error: ${res.status}`);
     }
-
     setOrders((prev) =>
       prev.map((o) =>
         o.deliveryId === order.deliveryId ? { ...o, statusId } : o
@@ -1410,12 +1477,21 @@ export function SalesPage() {
       await handleEditOrder(order);
       return;
     }
-
     if (action === 'special_note') {
       if (note) console.log(`Special note for ${order.orderCode}: ${note}`);
       return;
     }
-
+    if (action === 'wrapping' && statusId !== undefined) {
+      const newTrackingCode = note ?? '';
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.deliveryId === order.deliveryId
+            ? { ...o, statusId: 3, orderCode: newTrackingCode }
+            : o
+        )
+      );
+      return;
+    }
     if (action === 'status' && statusId !== undefined) {
       await handleUpdateOrderStatus(order, statusId);
     }
@@ -1630,6 +1706,34 @@ export function SalesPage() {
           <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="space-y-2 mb-3">
 
+              {/* ── Category Selector ── */}
+              <FieldRow label="Category">
+                {isLoadingItems ? (
+                  <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
+                    <RefreshCwIcon className="h-3.5 w-3.5 animate-spin text-teal-500" />
+                    Loading…
+                  </div>
+                ) : (
+                  <select
+                    value={selectedCategoryId}
+                    onChange={(e) =>
+                      handleCategoryChange(
+                        e.target.value === '' ? '' : Number(e.target.value)
+                      )
+                    }
+                    className={selectCls}
+                  >
+                    {/* <option value="">All Categories</option> */}
+                    {subCategories.map((cat) => (
+                      <option key={cat.subItemCategoryId} value={cat.subItemCategoryId}>
+                        {cat.subItemCategoryName}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </FieldRow>
+
+              {/* ── Item Selector (filtered by category) ── */}
               <FieldRow label="Select Item">
                 {isLoadingItems ? (
                   <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
@@ -1640,13 +1744,18 @@ export function SalesPage() {
                   <select
                     value={selectedItemId}
                     onChange={(e) => setSelectedItemId(Number(e.target.value))}
-                    className={selectCls}
+                    disabled={filteredItems.length === 0}
+                    className={`${selectCls} ${filteredItems.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    {items.map((item) => (
-                      <option key={item.itemId} value={item.itemId}>
-                        {item.itemName}
-                      </option>
-                    ))}
+                    {filteredItems.length === 0 ? (
+                      <option value="">No items in this category</option>
+                    ) : (
+                      filteredItems.map((item) => (
+                        <option key={item.itemId} value={item.itemId}>
+                          {item.itemName}
+                        </option>
+                      ))
+                    )}
                   </select>
                 )}
               </FieldRow>
@@ -1662,7 +1771,7 @@ export function SalesPage() {
               </FieldRow>
             </div>
 
-            <div className="flex gap-2 border-b border-gray-100 pb-3">
+            <div className="flex justify-end gap-2 border-b border-gray-100 pb-3">
               <button
                 onClick={() => { setCart([]); setWeight(0); }}
                 className="flex items-center rounded-md bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600"
@@ -1673,7 +1782,7 @@ export function SalesPage() {
               <button
                 onClick={handleAddItem}
                 disabled={!selectedItem}
-                className="flex flex-1 items-center justify-center rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex w-32 items-center justify-center rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <PlusIcon className="mr-1.5 h-3.5 w-3.5" /> Add Item
               </button>
@@ -1778,8 +1887,7 @@ export function SalesPage() {
                   type="number"
                   value={weight}
                   readOnly
-                  onChange={(e) => setWeight(parseInt(e.target.value) || 0)}
-                  className='h-9 w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-600'
+                  className="h-9 w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-1 text-sm text-gray-600"
                 />
               </FieldRow>
 
@@ -1912,7 +2020,6 @@ export function SalesPage() {
         ════════════════════════════════════════════════ */}
         <div className="flex w-full flex-col lg:w-[70%] min-h-0">
 
-          {/* Header row */}
           <div className="mb-4 flex shrink-0 items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-800">Recent Orders</h2>
             <button
@@ -1925,7 +2032,6 @@ export function SalesPage() {
             </button>
           </div>
 
-          {/* Error banner */}
           {fetchError && (
             <div className="mb-3 shrink-0 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
               <span className="font-semibold shrink-0">Error:</span>

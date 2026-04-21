@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserIcon, LockIcon } from 'lucide-react';
+import logo from '../assets/logo.png';
 
 interface User {
   userId: number;
@@ -87,7 +88,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
         {/* Left Side */}
         <div className="flex w-full flex-col justify-between p-8 md:w-2/3 lg:p-12">
           <div className="flex flex-col items-center justify-center flex-1">
-            <img src="assets/logo.png" width={200} />
+            <img src={logo} width={200} />
 
             <h2 className="mb-6 text-2xl font-semibold text-gray-800">Welcome Back</h2>
 

@@ -315,21 +315,24 @@ export function FilterOrderPage() {
     {
       header: 'Status',
       accessor: (row) => {
-        const statusColors: Record<number, string> = {
-          1: 'bg-green-100 text-green-700',
-          2: 'bg-yellow-100 text-yellow-700',
-          3: 'bg-blue-100 text-blue-700',
-          4: 'bg-indigo-100 text-indigo-700',
-          5: 'bg-teal-100 text-teal-700',
-          6: 'bg-red-100 text-red-700',
-          7: 'bg-gray-100 text-gray-700',
-          12: 'bg-orange-100 text-orange-700',
-          13: 'bg-purple-100 text-purple-700',
+        const statusStyles: Record<number, { bg: string; fg: string }> = {
+          1:  { bg: 'rgb(145,200,228)', fg: 'rgb(92,136,196)'  },  // Active    - blue
+          2:  { bg: 'rgba(206, 206, 206, 1)', fg: 'rgba(100, 100, 100, 1)'   },  // Pending   - yellow
+          3:  { bg: 'rgb(255,255,102)', fg: 'rgb(128,128,0)'   },  // Wrapping  - yellow
+          4:  { bg: 'rgb(230,204,255)', fg: 'rgb(102,0,153)'   },  // Despatch  - purple
+          5:  { bg: 'rgb(198,239,206)', fg: 'rgb(0,97,0)'      },  // Delivered - green
+          6:  { bg: 'rgb(255,178,102)', fg: 'rgb(207,83,0)'    },  // Return    - orange
+          7:  { bg: 'rgb(255,204,204)', fg: 'rgb(178,34,34)'   },  // Cancel    - red
+          12: { bg: 'rgb(255,180,180)', fg: 'rgb(255,68,52)'   },  // Returning - light orange
+          13: { bg: 'rgb(152,161,188)', fg: 'rgb(85,88,121)'   },  // Checking  - gray
         };
         const label = statusTypeMap[row.statusId] ?? '-';
-        const color = statusColors[row.statusId] ?? 'bg-gray-100 text-gray-600';
+        const style = statusStyles[row.statusId] ?? { bg: '#fff', fg: '#000' };
         return (
-          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${color}`}>
+          <span
+            className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
+            style={{ backgroundColor: style.bg, color: style.fg }}
+          >
             {label}
           </span>
         );

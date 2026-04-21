@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   HashRouter as Router,
   Routes,
@@ -8,6 +8,7 @@ import {
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { LoginPage } from './pages/LoginPage';
+import { ModuleAccessProvider } from './context/ModuleAccessContext';
 import { DashboardPage } from './pages/DashboardPage';
 import { SalesPage } from './pages/SalesPage';
 import { DeliveryOrdersPage } from './pages/DeliveryOrdersPage';
@@ -34,29 +35,61 @@ import { PrinterTypePage } from './pages/inventory/PrinterTypePage';
 import { ConfigTablesPage } from './pages/inventory/ConfigTablesPage';
 import { MainTableLocationPage } from './pages/inventory/MainTableLocationPage';
 import { SubTableLocationPage } from './pages/inventory/SubTableLocationPage';
+import { DurationSalesReportPage } from './pages/DurationSalesReportPage';
+import { ManageReasonsPage } from './pages/configurations/ManageReasonsPage';
+import { ManageCourierCompanyPage } from './pages/configurations/ManageCourierCompanyPage';
+import { ManageCourierBranchesPage } from './pages/configurations/ManageCourierBranchesPage';
+import { ManageStatusTypePage } from './pages/configurations/ManageStatusTypePage';
+import { ManageUserAuthPage } from './pages/configurations/ManageUserAuthPage';
+import { ManageOrderTypePage } from './pages/configurations/ManageOrderTypePage';
+import { ManageStatusPage } from './pages/configurations/ManageStatusPage';
+import { ManageBusinessProfilePage } from './pages/configurations/ManageBusinessProfilePage';
 
 export function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState('');
+  const [userId, setUserId] = useState<number | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const handleLogin = (username: string) => {  // ← accepts username now
+  useEffect(() => {
+    // Load userId from localStorage on mount
+    const storedUserId = localStorage.getItem('userId');
+    if (storedUserId) {
+      setUserId(parseInt(storedUserId, 10));
+    }
+  }, []);
+
+  const handleLogin = (username: string) => {
     setUserName(username);
     setIsLoggedIn(true);
+    // userId is set after login via localStorage
+    const storedUserId = localStorage.getItem('userId');
+    if (storedUserId) {
+      setUserId(parseInt(storedUserId, 10));
+    }
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
     setUserName('');
+    setUserId(null);
+    localStorage.removeItem('userId');
+    localStorage.removeItem('username');
   };
 
   if (!isLoggedIn) {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  if (!userId) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   return (
-    <Router>
-      <div className="flex h-screen w-full overflow-hidden bg-gray-50 font-sans">
-        <Sidebar onLogout={handleLogout} />
+    <ModuleAccessProvider userId={userId}>
+      <Router>
+        <div className="flex h-screen w-full overflow-hidden bg-gray-50 font-sans">
+          <Sidebar onLogout={handleLogout} isCollapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)} />
 
         <div className="flex flex-1 flex-col overflow-hidden">
           <Routes>
@@ -85,6 +118,15 @@ export function App() {
             <Route path="/inventory/config-tables" element={<TopBar title="Configuration Tables" userName={userName} />} />
             <Route path="/inventory/main-table-location" element={<TopBar title="Main Table Locations" userName={userName} />} />
             <Route path="/inventory/sub-table-location" element={<TopBar title="Sub-Table Locations" userName={userName} />} />
+            <Route path="/reports/duration-sales" element={<TopBar title="Duration Sales Report" userName={userName} />} />
+            <Route path="/configurations/manage-reasons" element={<TopBar title="Manage Reasons" userName={userName} />} />
+            <Route path="/configurations/manage-courier-company" element={<TopBar title="Manage Courier Company" userName={userName} />} />
+            <Route path="/configurations/manage-courier-branches" element={<TopBar title="Manage Courier Branches" userName={userName} />} />
+            <Route path="/configurations/manage-status-type" element={<TopBar title="Manage Status Type" userName={userName} />} />
+            <Route path="/configurations/manage-user-auth" element={<TopBar title="Manage User Auth" userName={userName} />} />
+            <Route path="/configurations/manage-order-type" element={<TopBar title="Manage Order Types" userName={userName} />} />
+            <Route path="/configurations/manage-status" element={<TopBar title="Manage Status" userName={userName} />} />
+            <Route path="/configurations/manage-business-profile" element={<TopBar title="Manage Business Profile" userName={userName} />} />
             <Route path="*" element={<TopBar title="Petal Pink POS System" userName={userName} />} />
           </Routes>
 
@@ -117,6 +159,17 @@ export function App() {
               <Route path="/inventory/config-tables" element={<ConfigTablesPage />} />
               <Route path="/inventory/main-table-location" element={<MainTableLocationPage />} />
               <Route path="/inventory/sub-table-location" element={<SubTableLocationPage />} />
+              <Route path="/reports/duration-sales" element={<DurationSalesReportPage />} />
+
+              {/* Configuration Routes */}
+              <Route path="/configurations/manage-reasons" element={<ManageReasonsPage />} />
+              <Route path="/configurations/manage-courier-company" element={<ManageCourierCompanyPage />} />
+              <Route path="/configurations/manage-courier-branches" element={<ManageCourierBranchesPage />} />
+              <Route path="/configurations/manage-status-type" element={<ManageStatusTypePage />} />
+              <Route path="/configurations/manage-user-auth" element={<ManageUserAuthPage />} />
+              <Route path="/configurations/manage-order-type" element={<ManageOrderTypePage />} />
+              <Route path="/configurations/manage-status" element={<ManageStatusPage />} />
+              <Route path="/configurations/manage-business-profile" element={<ManageBusinessProfilePage />} />
 
               {/* Placeholder Routes */}
               <Route path="/pms" element={<PlaceholderPage title="PMS" />} />
@@ -124,8 +177,6 @@ export function App() {
               <Route path="/property-management" element={<PlaceholderPage title="Property Management" />} />
               <Route path="/reports" element={<PlaceholderPage title="Reports" />} />
               <Route path="/configurations" element={<PlaceholderPage title="Configurations" />} />
-              <Route path="/customers" element={<PlaceholderPage title="Customer Management" />} />
-              <Route path="/user-management" element={<PlaceholderPage title="User Management" />} />
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
@@ -133,5 +184,6 @@ export function App() {
         </div>
       </div>
     </Router>
+    </ModuleAccessProvider>
   );
 }
