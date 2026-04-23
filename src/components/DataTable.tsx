@@ -11,6 +11,9 @@ interface DataTableProps<T> {
   data: T[];
   emptyMessage?: string;
   onRowDoubleClick?: (row: T) => void;
+  onRowClick?: (row: T) => void;
+  selectedRow?: T | null;
+  rowClassName?: string | ((row: T, rowIdx: number) => string);
 }
 
 export function DataTable<T>({
@@ -18,7 +21,25 @@ export function DataTable<T>({
   data,
   emptyMessage = 'No records found',
   onRowDoubleClick,
+  onRowClick,
+  selectedRow,
+  rowClassName,
 }: DataTableProps<T>) {
+  const getRowClassName = (row: T, rowIdx: number): string => {
+    const base = 'transition-colors duration-100';
+    const clickable = onRowClick || onRowDoubleClick ? 'cursor-pointer select-none' : '';
+
+    const selected =
+      selectedRow === row ? 'bg-teal-100' : '';
+
+    const custom =
+      typeof rowClassName === 'function'
+        ? rowClassName(row, rowIdx)
+        : rowClassName ?? '';
+
+    return [base, clickable, selected, custom].filter(Boolean).join(' ');
+  };
+
   return (
     <div className="custom-scrollbar h-full overflow-auto rounded-lg border border-gray-200 shadow-sm">
       <table className="min-w-full divide-y divide-gray-200">
@@ -50,10 +71,9 @@ export function DataTable<T>({
             data.map((row, rowIdx) => (
               <tr
                 key={rowIdx}
+                onClick={() => onRowClick?.(row)}
                 onDoubleClick={() => onRowDoubleClick?.(row)}
-                className={`transition-colors hover:bg-gray-50 ${
-                  onRowDoubleClick ? 'cursor-pointer select-none' : ''
-                }`}
+                className={getRowClassName(row, rowIdx)}
               >
                 {columns.map((col, colIdx) => (
                   <td

@@ -172,7 +172,7 @@ export function PurchaseOrderPage() {
                   <div className="w-24">
                     <label className="block text-sm font-medium text-gray-700">Total</label>
                     <div className="mt-1 rounded-lg bg-gray-50 px-3 py-2 text-sm font-medium">
-                      ₹{((parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0)).toFixed(2)}
+                      Rs.{((parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0)).toFixed(2)}
                     </div>
                   </div>
                   {formData.items.length > 1 && (
@@ -201,7 +201,7 @@ export function PurchaseOrderPage() {
               <div className="w-64">
                 <div className="flex justify-between pb-2 border-b border-gray-200">
                   <span className="font-medium">Order Total:</span>
-                  <span className="font-bold text-lg">₹{calculateTotal().toFixed(2)}</span>
+                  <span className="font-bold text-lg">Rs. {calculateTotal().toFixed(2)}</span>
                 </div>
               </div>
             </div>

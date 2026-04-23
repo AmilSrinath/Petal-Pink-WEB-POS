@@ -25,7 +25,7 @@ export const getStatusColor = (status: string): string => {
 
 // Format currency
 export const formatCurrency = (amount: number): string => {
-  return `₹${amount.toFixed(2)}`;
+  return `Rs.${amount.toFixed(2)}`;
 };
 
 // Format date

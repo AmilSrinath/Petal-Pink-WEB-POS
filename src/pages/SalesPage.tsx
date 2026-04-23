@@ -65,10 +65,13 @@ interface CartItem {
   unitPrice: number;
   discount: number;
   amount: number;
+  discountType: 'amount' | 'pct';
 }
 
+// ── paymentTypeId added ──
 interface Order {
   deliveryId: number;
+  orderId: number;
   orderCode: string;
   customerName: string;
   phoneOne: string;
@@ -78,6 +81,7 @@ interface Order {
   orderType: string;
   date: string;
   statusId: number;
+  paymentTypeId: number;
 }
 
 interface OrderItem {
@@ -147,29 +151,53 @@ interface PaymentTypeOption {
   visible: number;
 }
 
+interface OrderDetailItem {
+  orderDetailId: number;
+  itemId: number;
+  itemName: string;
+  itemBarCode: number | null;
+  unitTypeId: number | null;
+  printerTypeId: number | null;
+  quantity: number;
+  perItemPrice: number;
+  totalDiscountPrice: number;
+  totalItemPrice: number;
+  remark: string;
+}
+
+interface BusinessProfile {
+  bussinessProfileId: number;
+  bussinessProfileName: string;
+  status: number;
+  userId: number;
+}
+
 // ─── Today's date helper ──────────────────────────────────────────────────────
 
 const getTodayStr = (): string => new Date().toISOString().split('T')[0];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// ── CHANGE 3: Darker status badge colors ──
 const statusBadgeClass = (statusId: number): string => {
   switch (statusId) {
-    case 1:  return 'bg-blue-100 text-blue-800';
-    case 2:  return 'bg-yellow-100 text-yellow-800';
-    case 3:  return 'bg-indigo-100 text-indigo-800';
-    case 4:  return 'bg-purple-100 text-purple-800';
-    case 5:  return 'bg-green-100 text-green-800';
-    case 6:  return 'bg-pink-100 text-pink-800';
-    case 7:  return 'bg-gray-200 text-gray-700';
-    case 12: return 'bg-rose-100 text-rose-800';
-    case 13: return 'bg-cyan-100 text-cyan-800';
-    default: return 'bg-gray-100 text-gray-600';
+    case 1:  return 'bg-blue-200 text-blue-900';
+    case 2:  return 'bg-yellow-200 text-yellow-900';
+    case 3:  return 'bg-indigo-200 text-indigo-900';
+    case 4:  return 'bg-purple-200 text-purple-900';
+    case 5:  return 'bg-green-200 text-green-900';
+    case 6:  return 'bg-pink-200 text-pink-900';
+    case 7:  return 'bg-gray-300 text-gray-800';
+    case 12: return 'bg-rose-200 text-rose-900';
+    case 13: return 'bg-cyan-200 text-cyan-900';
+    default: return 'bg-gray-200 text-gray-700';
   }
 };
 
+// ── paymentTypeId included in mapping ──
 const mapApiToOrder = (d: DeliveryOrderResponse): Order => ({
   deliveryId: d.deliveryId,
+  orderId: d.orderId,
   orderCode: d.orderCode?.trim() ?? '',
   customerName: d.customerName?.trim() ?? '',
   phoneOne: d.phoneOne ?? '',
@@ -179,6 +207,7 @@ const mapApiToOrder = (d: DeliveryOrderResponse): Order => ({
   orderType: d.orderType ?? '',
   date: d.createdDate ? d.createdDate.split('T')[0] : '',
   statusId: d.statusId,
+  paymentTypeId: d.paymentTypeId ?? 0,
 });
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
@@ -523,7 +552,14 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
           </button>
         </div>
 
-        <div className="flex items-center gap-4 bg-gray-50 border-b border-gray-100 px-5 py-3">
+        {/* Sub-header */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-gray-50 border-b border-gray-100 px-5 py-3">
+          <div className="text-xs text-gray-500">
+            <span className="font-medium text-gray-700">Delivery ID:</span> #{order.deliveryId}
+          </div>
+          <div className="text-xs text-gray-500">
+            <span className="font-medium text-gray-700">Order ID:</span> #{order.orderId}
+          </div>
           <div className="text-xs text-gray-500">
             <span className="font-medium text-gray-700">Phone:</span> {order.phoneOne || '—'}
           </div>
@@ -680,16 +716,16 @@ interface OrderViewModalProps {
 }
 
 const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalProps) => {
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [orderItems, setOrderItems] = useState<OrderDetailItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isOpen || !order?.deliveryId) return;
+    if (!isOpen || !order?.orderId) return;
     setOrderItems([]);
     setItemsError(null);
     setLoadingItems(true);
-    fetch(`http://localhost:8080/api/sales/delivery-orders/${order.deliveryId}/items`)
+    fetch(`http://localhost:8080/api/sales/orders/${order.orderId}/items`)
       .then((res) => {
         if (!res.ok) throw new Error(`Status ${res.status}`);
         return res.json();
@@ -697,7 +733,7 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
       .then((data: OrderItem[]) => setOrderItems(data))
       .catch((err) => setItemsError(err.message ?? 'Failed to load items'))
       .finally(() => setLoadingItems(false));
-  }, [isOpen, order?.deliveryId]);
+  }, [isOpen, order?.orderId]);
 
   if (!isOpen || !order) return null;
 
@@ -711,8 +747,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
     { label: 'COD Amount',    value: `Rs. ${order.cod.toFixed(2)}` },
     { label: 'Total Amount',  value: `Rs. ${order.totalAmount.toFixed(2)}` },
   ];
-
-  const itemsTotal = orderItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
 
   return (
     <div
@@ -786,33 +820,37 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
                   <thead className="bg-teal-700">
                     <tr>
                       <th className="px-3 py-2 text-left text-xs font-medium text-white">#</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-white">Item</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-white">Unit</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-white">Item Name</th>
                       <th className="px-3 py-2 text-center text-xs font-medium text-white">Qty</th>
-                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Price</th>
-                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Disc</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Unit Price</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Discount</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white">
                     {orderItems.map((item, idx) => (
-                      <tr key={item.itemId} className="hover:bg-gray-50 transition-colors">
+                      <tr key={item.orderDetailId} className="hover:bg-gray-50 transition-colors">
                         <td className="px-3 py-2.5 text-xs text-gray-400">{idx + 1}</td>
-                        <td className="px-3 py-2.5 text-xs font-medium text-gray-900">{item.itemName}</td>
-                        <td className="px-3 py-2.5 text-xs text-gray-500">{item.unitType}</td>
+                        <td className="px-3 py-2.5 text-xs font-medium text-gray-900">
+                          {item.itemName}
+                        </td>
                         <td className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700">
                           <span className="inline-flex items-center justify-center h-5 min-w-[1.25rem] rounded bg-gray-100 px-1.5 text-gray-800">
                             {item.quantity}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-right text-xs font-semibold text-gray-900">
-                          {item.unitPrice.toFixed(2)}
+                        <td className="px-3 py-2.5 text-right text-xs text-gray-700">
+                          {item.perItemPrice.toFixed(2)}
                         </td>
-                        <td className="px-3 py-2.5 text-right text-xs text-gray-500">
-                          {item.discount > 0 ? (
-                            <span className="text-red-500">{item.discount.toFixed(2)}</span>
+                        <td className="px-3 py-2.5 text-right text-xs">
+                          {item.totalDiscountPrice > 0 ? (
+                            <span className="text-red-500">{item.totalDiscountPrice.toFixed(2)}</span>
                           ) : (
-                            '—'
+                            <span className="text-gray-400">—</span>
                           )}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-xs font-bold text-teal-800">
+                          {item.totalItemPrice.toFixed(2)}
                         </td>
                       </tr>
                     ))}
@@ -823,10 +861,12 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
                         {orderItems.length} item{orderItems.length !== 1 ? 's' : ''} ·{' '}
                         {orderItems.reduce((sum, i) => sum + i.quantity, 0)} units
                       </td>
-                      <td className="px-3 py-2 text-right text-xs font-bold text-teal-800">
-                        {itemsTotal.toFixed(2)}
+                      <td className="px-3 py-2 text-right text-xs text-red-400 font-semibold">
+                        -{orderItems.reduce((sum, i) => sum + i.totalDiscountPrice, 0).toFixed(2)}
                       </td>
-                      <td />
+                      <td className="px-3 py-2 text-right text-xs font-bold text-teal-800">
+                        {orderItems.reduce((sum, i) => sum + i.totalItemPrice, 0).toFixed(2)}
+                      </td>
                     </tr>
                   </tfoot>
                 </table>
@@ -848,6 +888,15 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
   );
 };
 
+// ─── Phone validation helper ──────────────────────────────────────────────────
+
+const validatePhone = (value: string): string | null => {
+  if (!value.trim()) return null;
+  const digits = value.replace(/\D/g, '');
+  if (digits.length !== 10) return 'Phone number must be exactly 10 digits.';
+  return null;
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function SalesPage() {
@@ -860,6 +909,10 @@ export function SalesPage() {
   const [customerNumber, setCustomerNumber] = useState('');
   const [address, setAddress] = useState('');
   const [remark, setRemark] = useState('');
+
+  // ── CHANGE 1: Phone validation error states ──
+  const [phoneOneError, setPhoneOneError] = useState<string | null>(null);
+  const [phoneTwoError, setPhoneTwoError] = useState<string | null>(null);
 
   const [isSearchingCustomer, setIsSearchingCustomer] = useState(false);
   const [customerSearchError, setCustomerSearchError] = useState<string | null>(null);
@@ -879,7 +932,6 @@ export function SalesPage() {
   const [selectedItemId, setSelectedItemId] = useState<number | ''>('');
   const [qty, setQty] = useState(1);
 
-  // selectedItem always reads from filteredItems
   const selectedItem = filteredItems.find((i) => i.itemId === selectedItemId) ?? null;
 
   // ── Left Column: Cart & discounts ──
@@ -891,6 +943,11 @@ export function SalesPage() {
   const [orderTypes, setOrderTypes] = useState<OrderTypeOption[]>([]);
   const [paymentTypeOptions, setPaymentTypeOptions] = useState<PaymentTypeOption[]>([]);
   const [statusTypes, setStatusTypes] = useState<StatusTypeOption[]>([]);
+
+  // ── Business Profile state ──
+  const [businessProfiles, setBusinessProfiles] = useState<BusinessProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<number | ''>('');
+  const [isLoadingProfiles, setIsLoadingProfiles] = useState(false);
 
   // ── Left Column: Order details ──
   const [orderType, setOrderType] = useState('');
@@ -915,6 +972,9 @@ export function SalesPage() {
   const [startDate, setStartDate] = useState<string>(getTodayStr);
   const [endDate, setEndDate] = useState<string>(getTodayStr);
 
+  // ── CHANGE 2: Payment type filter ──
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState<string>('');
+
   // ── Modal state ──
   const [actionModalOrder, setActionModalOrder] = useState<Order | null>(null);
   const [viewModalOrder, setViewModalOrder] = useState<Order | null>(null);
@@ -922,6 +982,16 @@ export function SalesPage() {
   // ── Delivery fee config ──
   const [baseDeliveryFee, setBaseDeliveryFee] = useState(0);
   const [addCostPerKg, setAddCostPerKg] = useState(0);
+
+  // ── CHANGE 2: Derived filtered orders by payment type ──
+  const filteredOrders = paymentTypeFilter
+    ? orders.filter((o) => {
+        const matched = paymentTypeOptions.find(
+          (pt) => pt.paymentType.toLowerCase() === paymentTypeFilter
+        );
+        return matched ? o.paymentTypeId === matched.paymentTypeId : true;
+      })
+    : orders;
 
   // ── Fetch delivery config ─────────────────────────────────────────────────
 
@@ -947,7 +1017,7 @@ export function SalesPage() {
     fetchDeliveryConfig();
   }, []);
 
-  // ── Fetch order types & payment types ────────────────────────────────────
+  // ── Fetch order types, payment types & business profiles ─────────────────
 
   useEffect(() => {
     const fetchDropdowns = async () => {
@@ -973,8 +1043,19 @@ export function SalesPage() {
           const stData: StatusTypeOption[] = await stRes.json();
           setStatusTypes(stData.filter((s) => s.status === 1));
         }
+
+        setIsLoadingProfiles(true);
+        const bpRes = await fetch('http://localhost:8080/api/config/business-profiles');
+        if (bpRes.ok) {
+          const bpData: BusinessProfile[] = await bpRes.json();
+          const active = bpData.filter((p) => p.status === 1);
+          setBusinessProfiles(active);
+          if (active.length > 0) setSelectedProfileId(active[0].bussinessProfileId);
+        }
       } catch (err) {
         console.error('Failed to fetch dropdowns:', err);
+      } finally {
+        setIsLoadingProfiles(false);
       }
     };
     fetchDropdowns();
@@ -1000,7 +1081,6 @@ export function SalesPage() {
   const handleCategoryChange = useCallback((catId: number | '') => {
     setSelectedCategoryId(catId);
     if (catId === '') {
-      // "All Categories" — show every active item
       setFilteredItems(items);
       if (items.length > 0) setSelectedItemId(items[0].itemId);
       else setSelectedItemId('');
@@ -1030,7 +1110,6 @@ export function SalesPage() {
       if (catsRes.ok) {
         const allCats: SubItemCategoryDTO[] = await catsRes.json();
 
-        // Only show categories that have at least one active item
         const usedCatIds = new Set(active.map((i) => i.subItemCategoryId));
         const relevantCats: SubItemCategory[] = allCats
           .filter((c) => c.status === 1 && usedCatIds.has(c.subItemCategoryId))
@@ -1041,7 +1120,6 @@ export function SalesPage() {
 
         setSubCategories(relevantCats);
 
-        // Auto-select first category
         if (relevantCats.length > 0) {
           const firstCatId = relevantCats[0].subItemCategoryId;
           setSelectedCategoryId(firstCatId);
@@ -1049,12 +1127,10 @@ export function SalesPage() {
           setFilteredItems(filtered);
           if (filtered.length > 0) setSelectedItemId(filtered[0].itemId);
         } else {
-          // No categories at all — show all items
           setFilteredItems(active);
           if (active.length > 0) setSelectedItemId(active[0].itemId);
         }
       } else {
-        // Category API failed — fall back to all items
         setFilteredItems(active);
         if (active.length > 0) setSelectedItemId(active[0].itemId);
       }
@@ -1161,12 +1237,17 @@ export function SalesPage() {
     setPhoneSuggestions([]);
     setActiveSuggestion(-1);
     setCustomerSearchError(null);
+    // Clear validation errors when a customer is selected from suggestions
+    setPhoneOneError(null);
+    setPhoneTwoError(null);
   };
 
+  // ── CHANGE 1: Phone One change with validation ──
   const handlePhoneChange = (value: string) => {
     setPhone(value);
     setActiveSuggestion(-1);
     setCustomerSearchError(null);
+    setPhoneOneError(validatePhone(value));
     const suggestions = filterSuggestions(value);
     if (suggestions.length > 0) {
       setPhoneSuggestions(suggestions);
@@ -1234,6 +1315,10 @@ export function SalesPage() {
     setWeight(0);
     setPaidAmount(0);
     setSaveError(null);
+    // ── CHANGE 1: clear phone errors on reset ──
+    setPhoneOneError(null);
+    setPhoneTwoError(null);
+    if (businessProfiles.length > 0) setSelectedProfileId(businessProfiles[0].bussinessProfileId);
   };
 
   // ── Cart handlers ─────────────────────────────────────────────────────────
@@ -1265,11 +1350,19 @@ export function SalesPage() {
         unitPrice: selectedItem.unitPrice,
         discount: itemDiscount,
         amount: lineTotal > 0 ? lineTotal : 0,
+        discountType: 'amount',
       };
       setCart((prev) => [...prev, newItem]);
     }
 
     setWeight((prev) => prev + selectedItem.weight * qty);
+  };
+
+  const handleItemDiscountTypeChange = (id: string, type: 'amount' | 'pct') => {
+    setCart(cart.map(item => {
+      if (item.id !== id) return item;
+      return { ...item, discountType: type, discount: 0, amount: item.unitPrice * item.qty };
+    }));
   };
 
   const handleRemoveItem = (id: string) => {
@@ -1280,14 +1373,15 @@ export function SalesPage() {
     setCart((prev) => prev.filter((c) => c.id !== id));
   };
 
-  const handleItemDiscountChange = (id: string, newDiscount: number) => {
-    setCart(
-      cart.map((item) => {
-        if (item.id !== id) return item;
-        const newAmount = item.unitPrice * item.qty - newDiscount;
-        return { ...item, discount: newDiscount, amount: newAmount > 0 ? newAmount : 0 };
-      })
-    );
+  const handleItemDiscountChange = (id: string, val: number) => {
+    setCart(cart.map(item => {
+      if (item.id !== id) return item;
+      const discAmt = item.discountType === 'pct'
+        ? (item.unitPrice * item.qty * val) / 100
+        : val;
+      const newAmount = item.unitPrice * item.qty - discAmt;
+      return { ...item, discount: discAmt, amount: newAmount > 0 ? newAmount : 0 };
+    }));
   };
 
   // ── Build API payload ─────────────────────────────────────────────────────
@@ -1329,6 +1423,7 @@ export function SalesPage() {
       totalOrderPrice: grandTotal,
       paidAmount,
       paymentTypeId: resolvedPaymentTypeId,
+      bussinessProfileId: selectedProfileId,
       items: apiItems,
     };
   };
@@ -1337,6 +1432,25 @@ export function SalesPage() {
 
   const handleSaveOrder = async () => {
     if (cart.length === 0) { alert('Cart is empty!'); return; }
+
+    // ── CHANGE 1: Phone validation before save ──
+    if (!phone.trim()) {
+      setPhoneOneError('Phone One is required.');
+      return;
+    }
+    const p1err = validatePhone(phone);
+    if (p1err) {
+      setPhoneOneError(p1err);
+      return;
+    }
+    if (phoneTwo.trim()) {
+      const p2err = validatePhone(phoneTwo);
+      if (p2err) {
+        setPhoneTwoError(p2err);
+        return;
+      }
+    }
+
     setSaveError(null);
     setIsSaving(true);
 
@@ -1380,11 +1494,14 @@ export function SalesPage() {
     setEditingDeliveryId(order.deliveryId);
     setEditingStatusId(order.statusId);
     setOrderCode(order.orderCode);
+    setDiscountMode('item');
     setCustomerName(order.customerName);
     setPhone(order.phoneOne);
     setPhoneTwo(order.phoneTwo);
     setOrderType(order.orderType);
     setSaveError(null);
+    setPhoneOneError(null);
+    setPhoneTwoError(null);
 
     try {
       const detailRes = await fetch(
@@ -1412,26 +1529,29 @@ export function SalesPage() {
 
     try {
       const itemsRes = await fetch(
-        `http://localhost:8080/api/sales/delivery-orders/${order.deliveryId}/items`
+        `http://localhost:8080/api/sales/orders/${order.orderId}/items`
       );
       if (!itemsRes.ok) throw new Error(`Status ${itemsRes.status}`);
-      const orderItems: OrderItem[] = await itemsRes.json();
+      const orderItems: OrderDetailItem[] = await itemsRes.json();
 
       let totalWeightG = 0;
       const cartItems: CartItem[] = orderItems.map((oi) => {
-        const lineDiscount = oi.discount ?? 0;
-        const lineAmount = oi.unitPrice * oi.quantity - lineDiscount;
-        totalWeightG += (oi.weight ?? 0) * oi.quantity;
+        const masterItem = items.find((i) => i.itemId === oi.itemId);
+        const itemWeight = masterItem?.weight ?? 0;
+        const lineDiscount = oi.totalDiscountPrice ?? 0;
+        const lineAmount = oi.totalItemPrice ?? (oi.perItemPrice * oi.quantity - lineDiscount);
+        totalWeightG += itemWeight * oi.quantity;
         return {
           id: `edit-${oi.itemId}-${Date.now()}`,
           itemId: oi.itemId,
           itemBarCode: oi.itemBarCode ?? 0,
-          itemWeight: oi.weight ?? 0,
-          name: `${oi.itemName} (${oi.itemCodePrefix})`,
+          itemWeight: itemWeight,
+          name: oi.itemName,
           qty: oi.quantity,
-          unitPrice: oi.unitPrice,
+          unitPrice: oi.perItemPrice,
           discount: lineDiscount,
           amount: lineAmount > 0 ? lineAmount : 0,
+          discountType: 'amount' as const,
         };
       });
 
@@ -1444,7 +1564,7 @@ export function SalesPage() {
     }
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [paymentTypeOptions]);
+  }, [paymentTypeOptions, items]);
 
   // ── Update order status ───────────────────────────────────────────────────
 
@@ -1497,8 +1617,9 @@ export function SalesPage() {
     }
   }, [handleEditOrder, handleUpdateOrderStatus]);
 
-  // ── Table columns ─────────────────────────────────────────────────────────
+  const [selectedOrder, setSelectedOrder] = useState(null);
 
+  // ── CHANGE 4: Table columns with row hover ──
   const orderColumns: Column<Order>[] = [
     { header: 'Order Code', accessor: 'orderCode', className: 'font-medium text-teal-600' },
     { header: 'Customer Name', accessor: 'customerName' },
@@ -1605,9 +1726,11 @@ export function SalesPage() {
             </h3>
             <div className="space-y-2">
 
-              {/* Phone One with live suggestions */}
-              <div className="flex items-center gap-3">
-                <label className="w-36 shrink-0 text-xs font-medium text-gray-600">Phone One</label>
+              {/* Phone One with live suggestions + validation */}
+              <div className="flex gap-3 items-start">
+                <label className="w-36 shrink-0 text-xs font-medium text-gray-600 leading-9">
+                  Phone One <span className="text-red-500">*</span>
+                </label>
                 <div className="relative flex flex-1 min-w-0 flex-col gap-1">
                   <div className="flex">
                     <input
@@ -1616,9 +1739,14 @@ export function SalesPage() {
                       value={phone}
                       onChange={(e) => handlePhoneChange(e.target.value)}
                       onKeyDown={handlePhoneKeyDown}
-                      placeholder="Type phone or name…"
+                      placeholder="10-digit phone number"
                       autoComplete="off"
-                      className="h-9 w-full rounded-l-md border border-gray-300 px-3 py-1 text-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 bg-white"
+                      maxLength={15}
+                      className={`h-9 w-full rounded-l-md border px-3 py-1 text-sm focus:outline-none focus:ring-1 bg-white ${
+                        phoneOneError
+                          ? 'border-red-400 focus:border-red-400 focus:ring-red-400'
+                          : 'border-gray-300 focus:border-teal-500 focus:ring-teal-500'
+                      }`}
                     />
                     <button
                       onClick={handlePhoneSearch}
@@ -1631,7 +1759,15 @@ export function SalesPage() {
                     </button>
                   </div>
 
-                  {customerSearchError && (
+                  {/* CHANGE 1: Phone one error message */}
+                  {phoneOneError && (
+                    <p className="text-xs text-red-500 flex items-center gap-1">
+                      <AlertCircleIcon className="h-3 w-3 shrink-0" />
+                      {phoneOneError}
+                    </p>
+                  )}
+
+                  {customerSearchError && !phoneOneError && (
                     <p className="text-xs text-red-500">{customerSearchError}</p>
                   )}
 
@@ -1665,9 +1801,33 @@ export function SalesPage() {
                 </div>
               </div>
 
-              <FieldRow label="Phone Two">
-                <input type="text" value={phoneTwo} onChange={(e) => setPhoneTwo(e.target.value)} placeholder="Optional second number" className={inputCls} />
-              </FieldRow>
+              {/* CHANGE 1: Phone Two with validation */}
+              <div className="flex gap-3 items-start">
+                <label className="w-36 shrink-0 text-xs font-medium text-gray-600 leading-9">Phone Two</label>
+                <div className="flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={phoneTwo}
+                    onChange={(e) => {
+                      setPhoneTwo(e.target.value);
+                      setPhoneTwoError(validatePhone(e.target.value));
+                    }}
+                    placeholder="Optional — 10 digits if entered"
+                    maxLength={15}
+                    className={`h-9 w-full rounded-md border px-3 py-1 text-sm focus:outline-none focus:ring-1 bg-white ${
+                      phoneTwoError
+                        ? 'border-red-400 focus:border-red-400 focus:ring-red-400'
+                        : 'border-gray-300 focus:border-teal-500 focus:ring-teal-500'
+                    }`}
+                  />
+                  {phoneTwoError && (
+                    <p className="mt-0.5 text-xs text-red-500 flex items-center gap-1">
+                      <AlertCircleIcon className="h-3 w-3 shrink-0" />
+                      {phoneTwoError}
+                    </p>
+                  )}
+                </div>
+              </div>
 
               <FieldRow label="Customer Name">
                 <input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className={inputCls} />
@@ -1706,7 +1866,33 @@ export function SalesPage() {
           <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="space-y-2 mb-3">
 
-              {/* ── Category Selector ── */}
+              {/* Business Profile Selector */}
+              <FieldRow label="Business Profile">
+                {isLoadingProfiles ? (
+                  <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
+                    <RefreshCwIcon className="h-3.5 w-3.5 animate-spin text-teal-500" />
+                    Loading…
+                  </div>
+                ) : (
+                  <select
+                    value={selectedProfileId}
+                    onChange={(e) => setSelectedProfileId(Number(e.target.value))}
+                    className={selectCls}
+                  >
+                    {businessProfiles.length === 0 ? (
+                      <option value="">No profiles available</option>
+                    ) : (
+                      businessProfiles.map((bp) => (
+                        <option key={bp.bussinessProfileId} value={bp.bussinessProfileId}>
+                          {bp.bussinessProfileName}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                )}
+              </FieldRow>
+
+              {/* Category Selector */}
               <FieldRow label="Category">
                 {isLoadingItems ? (
                   <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
@@ -1723,7 +1909,6 @@ export function SalesPage() {
                     }
                     className={selectCls}
                   >
-                    {/* <option value="">All Categories</option> */}
                     {subCategories.map((cat) => (
                       <option key={cat.subItemCategoryId} value={cat.subItemCategoryId}>
                         {cat.subItemCategoryName}
@@ -1733,7 +1918,7 @@ export function SalesPage() {
                 )}
               </FieldRow>
 
-              {/* ── Item Selector (filtered by category) ── */}
+              {/* Item Selector */}
               <FieldRow label="Select Item">
                 {isLoadingItems ? (
                   <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
@@ -1826,19 +2011,47 @@ export function SalesPage() {
                       </tr>
                     ) : (
                       cart.map((item) => (
-                        <tr key={item.id} className="hover:bg-gray-50">
+                        <tr key={item.id} className="hover:bg-gray-50 transition-colors">
                           <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-900">{item.name}</td>
                           <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-900">{item.qty}</td>
                           <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-900">{item.unitPrice.toFixed(2)}</td>
                           <td className="whitespace-nowrap px-3 py-2 text-xs">
                             {discountMode === 'item' ? (
-                              <input
-                                type="number"
-                                min="0"
-                                value={item.discount}
-                                onChange={(e) => handleItemDiscountChange(item.id, parseFloat(e.target.value) || 0)}
-                                className="w-16 rounded border border-gray-300 px-1.5 py-1 text-xs focus:border-teal-500 focus:outline-none"
-                              />
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max={item.discountType === 'pct' ? 100 : undefined}
+                                    value={item.discountType === 'pct'
+                                      ? (item.discount / (item.unitPrice * item.qty) * 100 || 0)
+                                      : item.discount}
+                                    onChange={(e) =>
+                                      handleItemDiscountChange(item.id, parseFloat(e.target.value) || 0)
+                                    }
+                                    className="w-16 rounded border border-gray-300 px-1.5 py-1 text-xs focus:border-teal-500 focus:outline-none"
+                                  />
+                                  <button
+                                    onClick={() => handleItemDiscountTypeChange(item.id, 'amount')}
+                                    className={`px-1.5 py-1 rounded text-xs font-medium border ${
+                                      item.discountType === 'amount'
+                                        ? 'bg-amber-50 text-amber-700 border-amber-300'
+                                        : 'bg-gray-50 text-gray-500 border-gray-200'
+                                    }`}
+                                  >Rs</button>
+                                  <button
+                                    onClick={() => handleItemDiscountTypeChange(item.id, 'pct')}
+                                    className={`px-1.5 py-1 rounded text-xs font-medium border ${
+                                      item.discountType === 'pct'
+                                        ? 'bg-teal-50 text-teal-700 border-teal-300'
+                                        : 'bg-gray-50 text-gray-500 border-gray-200'
+                                    }`}
+                                  >%</button>
+                                </div>
+                                {item.discountType === 'pct' && item.discount > 0 && (
+                                  <span className="text-teal-600 text-xs">= Rs {item.discount.toFixed(2)}</span>
+                                )}
+                              </div>
                             ) : (
                               <span className="text-gray-400">-</span>
                             )}
@@ -1999,7 +2212,7 @@ export function SalesPage() {
               </div>
               <button
                 onClick={handleSaveOrder}
-                disabled={isSaving}
+                disabled={isSaving || !!phoneOneError || !!phoneTwoError}
                 className="mt-4 w-full rounded-lg bg-teal-600 py-2.5 text-sm font-bold text-white shadow-md transition-colors hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isSaving ? (
@@ -2040,6 +2253,7 @@ export function SalesPage() {
             </div>
           )}
 
+          {/* CHANGE 2: Payment type filter wired up + CHANGE 4: row hover via rowClassName */}
           <FilterBar
             filters={[
               {
@@ -2059,13 +2273,17 @@ export function SalesPage() {
               {
                 type: 'select',
                 label: 'Payment Type',
+                value: paymentTypeFilter,
+                onChange: (val) => setPaymentTypeFilter(val),
                 options: [
-                  { label: 'Cash', value: 'cash' },
-                  { label: 'Card', value: 'card' },
+                  ...paymentTypeOptions.map((pt) => ({
+                    label: pt.paymentType,
+                    value: pt.paymentType.toLowerCase(),
+                  })),
                 ],
               },
             ]}
-            totalCount={orders.length}
+            totalCount={filteredOrders.length}
             onSearch={fetchOrders}
           />
 
@@ -2078,10 +2296,17 @@ export function SalesPage() {
             </div>
           )}
 
+
           {(!isLoading || orders.length > 0) && (
             <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200 bg-white">
               <div className="min-w-max">
-                <DataTable columns={orderColumns} data={orders} />
+                {/* CHANGE 4: Pass rowClassName for hover effect */}
+                <DataTable
+                  columns={orderColumns}
+                  data={filteredOrders}
+                  selectedRow={selectedOrder}
+                  onRowClick={setSelectedOrder}
+                />
               </div>
             </div>
           )}

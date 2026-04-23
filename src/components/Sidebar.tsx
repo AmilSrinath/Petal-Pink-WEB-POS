@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useModuleAccess } from '../context/ModuleAccessContext';
+import logo from '../assets/logo.png';
 import {
   LayoutDashboardIcon,
   ShoppingCartIcon,
@@ -49,8 +50,8 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
       submenu: [
         { path: '/inventory/item-main-category', label: 'Main Category' },
         { path: '/inventory/item-sub-category', label: 'Sub Category' },
-        { path: '/inventory/new-item', label: 'New Item' },
-        { path: '/inventory/item-list', label: 'Item List' },
+        { path: '/inventory/new-item', label: 'Items' },
+        // { path: '/inventory/item-list', label: 'Item List' },
         { path: '/inventory/purchase-order', label: 'Purchase Order' },
         { path: '/inventory/purchase-order-list', label: 'PO List' },
         { path: '/inventory/grn', label: 'Good Receive Note' },
@@ -171,7 +172,7 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
         {!isCollapsed && (
           <>
             <div className="flex items-center">
-              <img src='assets/logo.png' width={55}/>
+              <img src={logo} width={55}/>
               <h1 className="text-xl font-bold tracking-wider text-yellow-500 ml-3">
                 Petal Pink
               </h1>

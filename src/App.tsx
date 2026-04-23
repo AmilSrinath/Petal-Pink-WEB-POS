@@ -102,7 +102,7 @@ export function App() {
             <Route path="/inventory" element={<TopBar title="Inventory Management" userName={userName} />} />
             <Route path="/inventory/item-main-category" element={<TopBar title="Main Categories" userName={userName} />} />
             <Route path="/inventory/item-sub-category" element={<TopBar title="Sub Categories" userName={userName} />} />
-            <Route path="/inventory/new-item" element={<TopBar title="Add New Item" userName={userName} />} />
+            <Route path="/inventory/new-item" element={<TopBar title="Items" userName={userName} />} />
             <Route path="/inventory/item-list" element={<TopBar title="Item List" userName={userName} />} />
             <Route path="/inventory/purchase-order" element={<TopBar title="Create Purchase Order" userName={userName} />} />
             <Route path="/inventory/purchase-order-list" element={<TopBar title="Purchase Orders" userName={userName} />} />

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, Column } from '../components/DataTable';
+import { AddInquiryModal } from '../components/Addinquirymodal';
 
 interface Inquiry {
   inquiryId: number;
@@ -132,6 +133,7 @@ export function InquiryPage() {
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [selectedInquiry, setSelectedInquiry] = useState<Inquiry | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -209,6 +211,13 @@ export function InquiryPage() {
         <p className="text-xs text-gray-400">Double-click a row to change its status</p>
       </div>
 
+      <button
+        onClick={() => setShowAddModal(true)}
+        className="rounded-xl bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 text-sm font-semibold transition-all"
+      >
+        + Add Inquiry
+      </button>
+
       <FilterBar
         filters={[
           { type: 'text',   label: 'Way Bill', placeholder: 'e.g. EC706310723', value: wayBill, onChange: setWayBill },
@@ -248,6 +257,13 @@ export function InquiryPage() {
           inquiry={selectedInquiry}
           onClose={() => setSelectedInquiry(null)}
           onStatusChanged={handleStatusChanged}
+        />
+      )}
+
+      {showAddModal && (
+        <AddInquiryModal
+          onClose={() => setShowAddModal(false)}
+          onSaved={fetchInquiries}   // re-fetches the list after saving
         />
       )}
     </div>

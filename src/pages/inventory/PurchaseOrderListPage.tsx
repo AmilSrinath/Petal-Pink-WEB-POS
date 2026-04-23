@@ -38,7 +38,7 @@ export function PurchaseOrderListPage() {
     { header: 'Order Date', accessor: 'orderDate' },
     { header: 'Expected Delivery', accessor: 'expectedDelivery' },
     { header: 'Items', accessor: 'items' },
-    { header: 'Total Amount', accessor: (row) => `₹${row.totalAmount.toFixed(2)}` },
+    { header: 'Total Amount', accessor: (row) => `Rs.${row.totalAmount.toFixed(2)}` },
     { header: 'Status', accessor: (row) => (
       <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${getStatusColor(row.status)}`}>
         {row.status}

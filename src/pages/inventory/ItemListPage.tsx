@@ -38,8 +38,8 @@ export function ItemListPage() {
     { header: 'Item Name', accessor: 'name' },
     { header: 'Category', accessor: 'category' },
     { header: 'Unit', accessor: 'unitType' },
-    { header: 'Cost Price', accessor: (row) => `₹${row.costPrice.toFixed(2)}` },
-    { header: 'Selling Price', accessor: (row) => `₹${row.sellingPrice.toFixed(2)}` },
+    { header: 'Cost Price', accessor: (row) => `Rs.${row.costPrice.toFixed(2)}` },
+    { header: 'Selling Price', accessor: (row) => `Rs.${row.sellingPrice.toFixed(2)}` },
     { header: 'Current Stock', accessor: (row) => (
       <span className={row.currentStock <= row.reorderLevel ? 'text-red-600 font-semibold' : ''}>
         {row.currentStock}

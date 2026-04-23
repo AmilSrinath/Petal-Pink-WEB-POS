@@ -2,6 +2,7 @@ const { app, BrowserWindow } = require("electron");
 const path = require("path");
 const { spawn, execSync } = require("child_process");
 const os = require("os");
+const axios = require("axios");
 
 let backendProcess;
 let mainWindow;
@@ -51,25 +52,36 @@ function createWindow() {
   });
 }
 
-/* ------------------ App Ready ------------------ */
-app.whenReady().then(() => {
+async function waitForBackend() {
+  const maxAttempts = 30;
 
-  // JAR path for dev & production
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await axios.get("http://localhost:8080");
+      console.log("Backend ready!");
+      return true;
+    } catch {
+      console.log("Waiting for backend...");
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  return false;
+}
+
+/* ------------------ App Ready ------------------ */
+app.whenReady().then(async () => {
+
   const jarPath = app.isPackaged
     ? path.join(process.resourcesPath, "backend", "petalpink-0.0.1-SNAPSHOT.jar")
     : path.join(__dirname, "backend", "petalpink-0.0.1-SNAPSHOT.jar");
 
-  // Start Spring Boot backend
-  backendProcess = spawn("java", ["-jar", jarPath], {
-    stdio: "ignore",
-    detached: os.platform() !== "win32",
-    shell: os.platform() === "win32",
-  });
+  backendProcess = spawn("java", ["-jar", jarPath]);
 
   console.log("Backend starting...");
 
-  // Wait for backend to boot (important!)
-  setTimeout(createWindow, 5000);
+  await waitForBackend();
+
+  createWindow();
 });
 
 /* ------------------ Safety Exit ------------------ */

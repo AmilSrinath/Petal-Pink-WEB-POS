@@ -2,26 +2,24 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, Column } from '../components/DataTable';
 
-const PAYMENT_TYPE_MAP: Record<number, string> = {
-  1: 'Cash',
-  2: 'Card',
-  3: 'Bank Transfer',
-};
-
-// Cycle through these badge colours for however many statuses the API returns
-const BADGE_COLORS = [
-  'bg-blue-100 text-blue-800',
-  'bg-green-100 text-green-800',
-  'bg-yellow-100 text-yellow-800',
-  'bg-purple-100 text-purple-800',
-  'bg-red-100 text-red-800',
-];
+interface BusinessProfile {
+  bussinessProfileId: number;
+  bussinessProfileName: string;
+}
 
 interface PaymentStatusType {
   statusId: number;
   statusType: string;
   regId: number;
   status: number;
+}
+
+interface PaymentType {
+  paymentTypeId: number;
+  paymentType: string;
+  status: number;
+  userId: number;
+  visible: number;
 }
 
 interface PaymentRecord {
@@ -61,6 +59,8 @@ export function PaymentPage() {
 
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [paymentStatuses, setPaymentStatuses] = useState<PaymentStatusType[]>([]);
+  const [businessProfiles, setBusinessProfiles] = useState<BusinessProfile[]>([]);
+  const [paymentTypes, setPaymentTypes] = useState<PaymentType[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,40 +84,80 @@ export function PaymentPage() {
       .catch((err) => console.error('Failed to load payment statuses:', err));
   }, []);
 
+  // Fetch business profiles once on mount
+  useEffect(() => {
+    fetch('http://localhost:8080/api/config/business-profiles')
+      .then((res) => {
+        if (!res.ok) throw new Error(`Profile API error: ${res.status}`);
+        return res.json() as Promise<BusinessProfile[]>;
+      })
+      .then(setBusinessProfiles)
+      .catch((err) => console.error('Failed to load business profiles:', err));
+  }, []);
+
+  // Fetch payment types once on mount
+  useEffect(() => {
+    fetch('http://localhost:8080/api/payment-types')
+      .then((res) => {
+        if (!res.ok) throw new Error(`Payment types API error: ${res.status}`);
+        return res.json() as Promise<PaymentType[]>;
+      })
+      .then(setPaymentTypes)
+      .catch((err) => console.error('Failed to load payment types:', err));
+  }, []);
+
   // Build a lookup map: statusId → { label, className }
   const statusMap = React.useMemo(() => {
     const map: Record<number, { label: string; className: string }> = {};
     paymentStatuses.forEach((s) => {
       map[s.statusId] = {
         label: s.statusType,
-        className: s.statusType.toLowerCase().includes("not paid") ? "bg-red-100 text-red-800" : s.statusType.toLowerCase().includes("paid") ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800",
+        className: s.statusType.toLowerCase().includes('not paid')
+          ? 'bg-red-100 text-red-800'
+          : s.statusType.toLowerCase().includes('paid')
+          ? 'bg-green-100 text-green-800'
+          : 'bg-gray-100 text-gray-800',
       };
     });
     return map;
   }, [paymentStatuses]);
 
+  // Build a lookup map: paymentTypeId → label
+  const paymentTypeMap = React.useMemo(() => {
+    const map: Record<number, string> = {};
+    paymentTypes.forEach((t) => {
+      map[t.paymentTypeId] = t.paymentType;
+    });
+    return map;
+  }, [paymentTypes]);
+
   const updatePaymentStatus = async (orderId: number, statusId: number) => {
     try {
       const res = await fetch(
         `http://localhost:8080/api/payment-report/status-by-order?orderId=${orderId}&statusId=${statusId}`,
-        {
-          method: "PUT",
-        }
+        { method: 'PUT' }
       );
-
-      if (!res.ok) throw new Error("Failed to update status");
-
-      // Refresh table
+      if (!res.ok) throw new Error('Failed to update status');
       fetchPayments(filters.from, filters.to);
     } catch (err) {
-      alert("Error updating payment status");
+      alert('Error updating payment status');
     }
   };
 
-  // Options for the Payment Status combobox — dynamically built from API
+  // Options for dropdowns — dynamically built from API
   const statusOptions = paymentStatuses.map((s) => ({
     label: s.statusType,
     value: String(s.statusId),
+  }));
+
+  const profileOptions = businessProfiles.map((p) => ({
+    label: p.bussinessProfileName,
+    value: String(p.bussinessProfileId),
+  }));
+
+  const paymentTypeOptions = paymentTypes.map((t) => ({
+    label: t.paymentType,
+    value: String(t.paymentTypeId),
   }));
 
   const fetchPayments = useCallback(async (from: string, to: string) => {
@@ -155,7 +195,6 @@ export function PaymentPage() {
     if (filters.paymentType && String(p.paymentTypeId) !== filters.paymentType)
       return false;
 
-    // Match against statusId (the field returned in the payment report)
     if (filters.paymentStatus && String(p.statusId) !== filters.paymentStatus)
       return false;
 
@@ -192,7 +231,7 @@ export function PaymentPage() {
     {
       header: 'Payment Type',
       accessor: (row) =>
-        PAYMENT_TYPE_MAP[row.paymentTypeId] ?? `Type ${row.paymentTypeId}`,
+        paymentTypeMap[row.paymentTypeId] ?? `Type ${row.paymentTypeId}`,
     },
     {
       header: 'Payment Status',
@@ -215,7 +254,7 @@ export function PaymentPage() {
       accessor: (row) => row.createdDate.split('T')[0],
     },
     {
-      header: "Action",
+      header: 'Action',
       accessor: (row) => (
         <div className="flex gap-2">
           <button
@@ -224,7 +263,6 @@ export function PaymentPage() {
           >
             Paid
           </button>
-
           <button
             onClick={() => updatePaymentStatus(row.orderId, 9)}
             className="px-2 py-1 text-xs bg-red-500 text-white rounded"
@@ -267,28 +305,21 @@ export function PaymentPage() {
             label: 'Profile',
             value: filters.profile,
             onChange: (v) => setFilters((f) => ({ ...f, profile: v })),
-            options: [
-              { label: 'AmilGrainCo', value: 'amil' },
-              { label: 'BeautyCare', value: 'beauty' },
-            ],
+            options: profileOptions,
           },
           {
             type: 'select',
             label: 'Payment Type',
             value: filters.paymentType,
             onChange: (v) => setFilters((f) => ({ ...f, paymentType: v })),
-            options: [
-              { label: 'Cash', value: '1' },
-              { label: 'Card', value: '2' },
-              { label: 'Bank Transfer', value: '3' },
-            ],
+            options: paymentTypeOptions,
           },
           {
             type: 'select',
             label: 'Payment Status',
             value: filters.paymentStatus,
             onChange: (v) => setFilters((f) => ({ ...f, paymentStatus: v })),
-            options: statusOptions, // ← dynamically populated from API
+            options: statusOptions,
           },
         ]}
         totalCount={filtered.length}
