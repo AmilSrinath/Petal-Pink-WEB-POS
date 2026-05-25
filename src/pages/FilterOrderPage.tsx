@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, Column } from '../components/DataTable';
 import {
@@ -18,6 +18,7 @@ import {
   RefreshCwIcon,
   XIcon,
   EyeIcon,
+  AlertTriangleIcon,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -79,8 +80,6 @@ interface Toast {
   message: string;
 }
 
-// ─── Shared shape expected by OrderActionModal ────────────────────────────────
-
 interface ModalOrder {
   deliveryId: number;
   orderId: number;
@@ -100,8 +99,6 @@ interface StatusTypeOption {
   statusType: string;
 }
 
-// ─── Order detail item (for view modal) ──────────────────────────────────────
-
 interface OrderDetailItem {
   orderDetailId: number;
   itemId: number;
@@ -119,25 +116,20 @@ interface OrderDetailItem {
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 
 const isSuperAdmin = (): boolean => {
-  try {
-    return localStorage.getItem('username') === 'Super Admin';
-  } catch {
-    return false;
-  }
+  try { return localStorage.getItem('username') === 'Super Admin'; } catch { return false; }
 };
 
 const isStatusButtonAllowed = (currentStatusId: number, targetStatusId: number): boolean => {
   if (isSuperAdmin()) return true;
   if (currentStatusId === 5 || currentStatusId === 7) return false;
-
-  const allowedNext: Record<number, number> = {
-    2:  3,
-    3:  4,
-    4:  5,
-    12: 6,
+  if (currentStatusId === 2 && targetStatusId === 7) return true;
+  const allowedTransitions: Record<number, number[]> = {
+    2:  [3, 7],
+    3:  [4],
+    4:  [5, 16],  // ← 16 = Damage
+    12: [6],
   };
-
-  return allowedNext[currentStatusId] === targetStatusId;
+  return (allowedTransitions[currentStatusId] ?? []).includes(targetStatusId);
 };
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
@@ -153,6 +145,7 @@ const statusBadgeClass = (statusId: number): string => {
     case 7:  return 'bg-gray-300 text-gray-800';
     case 12: return 'bg-rose-200 text-rose-900';
     case 13: return 'bg-cyan-200 text-cyan-900';
+    case 16: return 'bg-orange-200 text-orange-900';
     default: return 'bg-gray-200 text-gray-700';
   }
 };
@@ -170,16 +163,16 @@ interface ActionButton {
 }
 
 const actionButtons: ActionButton[] = [
-  { label: 'Edit',         icon: <PencilIcon className="h-4 w-4" />,        color: 'bg-blue-500',   hoverColor: 'hover:bg-blue-600',   textColor: 'text-white', action: 'edit' },
-  { label: 'Pending',      icon: <ClockIcon className="h-4 w-4" />,         color: 'bg-yellow-400', hoverColor: 'hover:bg-yellow-500', textColor: 'text-white', action: 'status',  statusId: 2  },
-  { label: 'Wrapping',     icon: <PackageIcon className="h-4 w-4" />,       color: 'bg-indigo-500', hoverColor: 'hover:bg-indigo-600', textColor: 'text-white', action: 'status',  statusId: 3  },
-  { label: 'Despatch',     icon: <SendIcon className="h-4 w-4" />,          color: 'bg-purple-500', hoverColor: 'hover:bg-purple-600', textColor: 'text-white', action: 'status',  statusId: 4  },
-  { label: 'Delivered',    icon: <CheckCircleIcon className="h-4 w-4" />,   color: 'bg-green-500',  hoverColor: 'hover:bg-green-600',  textColor: 'text-white', action: 'status',  statusId: 5  },
-  { label: 'Return',       icon: <RotateCcwIcon className="h-4 w-4" />,     color: 'bg-pink-500',   hoverColor: 'hover:bg-pink-600',   textColor: 'text-white', action: 'status',  statusId: 6  },
-  { label: 'Cancel',       icon: <XCircleIcon className="h-4 w-4" />,       color: 'bg-gray-500',   hoverColor: 'hover:bg-gray-600',   textColor: 'text-white', action: 'status',  statusId: 7  },
-  { label: 'Returning',    icon: <RotateCcwIcon className="h-4 w-4" />,     color: 'bg-rose-400',   hoverColor: 'hover:bg-rose-500',   textColor: 'text-white', action: 'status',  statusId: 12 },
-  { label: 'Checking',     icon: <AlertCircleIcon className="h-4 w-4" />,   color: 'bg-cyan-500',   hoverColor: 'hover:bg-cyan-600',   textColor: 'text-white', action: 'status',  statusId: 13 },
-  { label: 'Special Note', icon: <FileTextIcon className="h-4 w-4" />,      color: 'bg-violet-500', hoverColor: 'hover:bg-violet-600', textColor: 'text-white', action: 'remark'  },
+  { label: 'Pending',      icon: <ClockIcon className="h-4 w-4" />,        color: 'bg-yellow-400', hoverColor: 'hover:bg-yellow-500', textColor: 'text-white', action: 'status',  statusId: 2  },
+  { label: 'Wrapping',     icon: <PackageIcon className="h-4 w-4" />,      color: 'bg-indigo-500', hoverColor: 'hover:bg-indigo-600', textColor: 'text-white', action: 'status',  statusId: 3  },
+  { label: 'Despatch',     icon: <SendIcon className="h-4 w-4" />,         color: 'bg-purple-500', hoverColor: 'hover:bg-purple-600', textColor: 'text-white', action: 'status',  statusId: 4  },
+  { label: 'Delivered',    icon: <CheckCircleIcon className="h-4 w-4" />,  color: 'bg-green-500',  hoverColor: 'hover:bg-green-600',  textColor: 'text-white', action: 'status',  statusId: 5  },
+  { label: 'Return',       icon: <RotateCcwIcon className="h-4 w-4" />,    color: 'bg-pink-500',   hoverColor: 'hover:bg-pink-600',   textColor: 'text-white', action: 'status',  statusId: 6  },
+  { label: 'Cancel',       icon: <XCircleIcon className="h-4 w-4" />,      color: 'bg-gray-500',   hoverColor: 'hover:bg-gray-600',   textColor: 'text-white', action: 'status',  statusId: 7  },
+  { label: 'Returning',    icon: <RotateCcwIcon className="h-4 w-4" />,    color: 'bg-rose-400',   hoverColor: 'hover:bg-rose-500',   textColor: 'text-white', action: 'status',  statusId: 12 },
+  { label: 'Checking',     icon: <AlertCircleIcon className="h-4 w-4" />,  color: 'bg-cyan-500',   hoverColor: 'hover:bg-cyan-600',   textColor: 'text-white', action: 'status',  statusId: 13 },
+  { label: 'Damage',    icon: <AlertTriangleIcon className="h-4 w-4" />,  color: 'bg-orange-500', hoverColor: 'hover:bg-orange-600', textColor: 'text-white', action: 'status', statusId: 16 },
+  { label: 'Special Note', icon: <FileTextIcon className="h-4 w-4" />,     color: 'bg-violet-500', hoverColor: 'hover:bg-violet-600', textColor: 'text-white', action: 'remark'  },
 ];
 
 // ─── Order Action Modal ───────────────────────────────────────────────────────
@@ -190,18 +183,29 @@ interface OrderActionModalProps {
   onClose: () => void;
   onAction: (order: ModalOrder, action: string, statusId?: number, note?: string) => Promise<void>;
   statusTypes: StatusTypeOption[];
+  // ── NEW: config flags ──
+  autoGenerateId: boolean;
+  isPrint: boolean;
 }
 
-const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: OrderActionModalProps) => {
-  const [specialNote, setSpecialNote]         = useState('');
-  const [showNoteInput, setShowNoteInput]     = useState(false);
+const OrderActionModal = ({
+  order,
+  isOpen,
+  onClose,
+  onAction,
+  statusTypes,
+  autoGenerateId,
+  isPrint,
+}: OrderActionModalProps) => {
+  const [specialNote,     setSpecialNote]     = useState('');
+  const [showNoteInput,   setShowNoteInput]   = useState(false);
   const [showRemarkInput, setShowRemarkInput] = useState(false);
-  const [remarkText, setRemarkText]           = useState('');
+  const [remarkText,      setRemarkText]      = useState('');
   const [isLoadingRemark, setIsLoadingRemark] = useState(false);
-  const [isSavingRemark, setIsSavingRemark]   = useState(false);
-  const [remarkError, setRemarkError]         = useState<string | null>(null);
+  const [isSavingRemark,  setIsSavingRemark]  = useState(false);
+  const [remarkError,     setRemarkError]     = useState<string | null>(null);
   const [loadingStatusId, setLoadingStatusId] = useState<number | null>(null);
-  const [actionError, setActionError]         = useState<string | null>(null);
+  const [actionError,     setActionError]     = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -234,15 +238,12 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
   };
 
   const getButtonTitle = (btn: ActionButton): string | undefined => {
-    if (btn.action === 'status' && btn.statusId === 13 && !order?.orderCode?.trim()) {
+    if (btn.action === 'status' && btn.statusId === 13 && !order?.orderCode?.trim())
       return 'Requires a tracking number / order code';
-    }
-    if (btn.action === 'status' && btn.statusId !== undefined && !isStatusButtonAllowed(order.statusId, btn.statusId)) {
+    if (btn.action === 'status' && btn.statusId !== undefined && !isStatusButtonAllowed(order.statusId, btn.statusId))
       return 'Not available at this stage';
-    }
-    if (btn.action === 'edit' && !isSuperAdmin() && (order.statusId === 5 || order.statusId === 7)) {
+    if (btn.action === 'edit' && !isSuperAdmin() && (order.statusId === 5 || order.statusId === 7))
       return 'Cannot edit a completed or cancelled order';
-    }
     return undefined;
   };
 
@@ -270,16 +271,36 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
 
     if (btn.action === 'edit') { await onAction(order, 'edit'); onClose(); return; }
 
+    // ── Wrapping button (statusId === 3) ──────────────────────────────────────
     if (btn.action === 'status' && btn.statusId === 3) {
       setLoadingStatusId(3);
       setActionError(null);
       try {
-        const res = await fetch(`http://localhost:8080/api/sales/${order.deliveryId}/generate-tracking`, { method: 'POST' });
-        if (!res.ok) { const t = await res.text(); throw new Error(t || `Server error: ${res.status}`); }
-        await onAction(order, 'wrapping', 3, await res.text());
+        let trackingCode = order.orderCode?.trim() ?? '';
+
+        // Only call generate-tracking if auto-generate is enabled
+        if (autoGenerateId) {
+          const res = await fetch(
+            `http://localhost:8080/api/sales/${order.deliveryId}/generate-tracking`,
+            { method: 'POST' }
+          );
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(t || `Server error: ${res.status}`);
+          }
+          trackingCode = await res.text();
+        }
+
+        await onAction(order, 'wrapping', 3, trackingCode);
+
+        // Trigger print only if is-print is enabled
+        if (isPrint) {
+          window.print();
+        }
+
         onClose();
       } catch (err: any) {
-        setActionError(err.message ?? 'Failed to generate tracking');
+        setActionError(err.message ?? 'Failed to process wrapping');
       } finally {
         setLoadingStatusId(null);
       }
@@ -348,14 +369,36 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
           </div>
         </div>
 
+        {/* Config indicator badges */}
+        <div className="flex gap-2 px-5 pt-3">
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+            autoGenerateId
+              ? 'bg-teal-50 text-teal-700 border border-teal-200'
+              : 'bg-gray-100 text-gray-400 border border-gray-200'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${autoGenerateId ? 'bg-teal-500' : 'bg-gray-400'}`} />
+            Auto ID {autoGenerateId ? 'On' : 'Off'}
+          </span>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+            isPrint
+              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+              : 'bg-gray-100 text-gray-400 border border-gray-200'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${isPrint ? 'bg-blue-500' : 'bg-gray-400'}`} />
+            Print {isPrint ? 'On' : 'Off'}
+          </span>
+        </div>
+
         {actionError && (
           <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
             <AlertCircleIcon className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-red-700">Status update failed</p>
+              <p className="text-xs font-semibold text-red-700">Action failed</p>
               <p className="text-xs text-red-600 mt-0.5 break-words">{actionError}</p>
             </div>
-            <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600"><XIcon className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">
+              <XIcon className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
 
@@ -437,9 +480,9 @@ interface OrderViewModalProps {
 }
 
 const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, rawOrder }: OrderViewModalProps) => {
-  const [orderItems, setOrderItems] = useState<OrderDetailItem[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
-  const [itemsError, setItemsError] = useState<string | null>(null);
+  const [orderItems,    setOrderItems]    = useState<OrderDetailItem[]>([]);
+  const [loadingItems,  setLoadingItems]  = useState(false);
+  const [itemsError,    setItemsError]    = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !order?.orderId) return;
@@ -447,10 +490,7 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
     setItemsError(null);
     setLoadingItems(true);
     fetch(`http://localhost:8080/api/sales/orders/${order.orderId}/items`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Status ${res.status}`);
-        return res.json();
-      })
+      .then((res) => { if (!res.ok) throw new Error(`Status ${res.status}`); return res.json(); })
       .then((data: OrderDetailItem[]) => setOrderItems(data))
       .catch((err) => setItemsError(err.message ?? 'Failed to load items'))
       .finally(() => setLoadingItems(false));
@@ -481,7 +521,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
     >
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
-        {/* Header */}
         <div className="flex items-center justify-between bg-gradient-to-r from-gray-700 to-gray-800 px-5 py-4 shrink-0">
           <div>
             <h3 className="text-base font-bold text-white">Order Details</h3>
@@ -493,8 +532,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
         </div>
 
         <div className="overflow-y-auto flex-1">
-
-          {/* Status badge */}
           <div className="px-5 pt-4 pb-2 flex items-center gap-2">
             <span className="text-xs font-medium text-gray-500">Status:</span>
             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(order.statusId)}`}>
@@ -502,7 +539,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
             </span>
           </div>
 
-          {/* Fields */}
           <div className="px-5 pb-2 space-y-0 divide-y divide-gray-100">
             {fields.map((f) => (
               <div key={f.label} className="flex items-start justify-between py-2.5 gap-4">
@@ -512,7 +548,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
             ))}
           </div>
 
-          {/* Order Items */}
           <div className="px-5 pb-5 mt-2">
             <div className="flex items-center gap-2 mb-3 border-t border-gray-100 pt-3">
               <PackageIcon className="h-4 w-4 text-teal-600" />
@@ -521,21 +556,17 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
 
             {loadingItems && (
               <div className="flex items-center justify-center py-6 gap-2 text-gray-400 text-sm">
-                <RefreshCwIcon className="h-4 w-4 animate-spin text-teal-500" />
-                Loading items…
+                <RefreshCwIcon className="h-4 w-4 animate-spin text-teal-500" />Loading items…
               </div>
             )}
-
             {itemsError && (
               <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
                 Failed to load items: {itemsError}
               </div>
             )}
-
             {!loadingItems && !itemsError && orderItems.length === 0 && (
               <div className="text-center py-6 text-xs text-gray-400">No items found for this order.</div>
             )}
-
             {!loadingItems && orderItems.length > 0 && (
               <div className="rounded-lg border border-gray-200 overflow-hidden">
                 <table className="min-w-full divide-y divide-gray-200">
@@ -570,13 +601,13 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
                   <tfoot className="bg-gray-50 border-t-2 border-gray-200">
                     <tr>
                       <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-gray-500">
-                        {orderItems.length} item{orderItems.length !== 1 ? 's' : ''} · {orderItems.reduce((sum, i) => sum + i.quantity, 0)} units
+                        {orderItems.length} item{orderItems.length !== 1 ? 's' : ''} · {orderItems.reduce((s, i) => s + i.quantity, 0)} units
                       </td>
                       <td className="px-3 py-2 text-right text-xs text-red-400 font-semibold">
-                        -{orderItems.reduce((sum, i) => sum + i.totalDiscountPrice, 0).toFixed(2)}
+                        -{orderItems.reduce((s, i) => s + i.totalDiscountPrice, 0).toFixed(2)}
                       </td>
                       <td className="px-3 py-2 text-right text-xs font-bold text-teal-800">
-                        {orderItems.reduce((sum, i) => sum + i.totalItemPrice, 0).toFixed(2)}
+                        {orderItems.reduce((s, i) => s + i.totalItemPrice, 0).toFixed(2)}
                       </td>
                     </tr>
                   </tfoot>
@@ -586,10 +617,66 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
           </div>
         </div>
 
-        {/* Footer */}
         <div className="px-5 py-3 shrink-0 border-t border-gray-100">
           <button onClick={onClose} className="w-full rounded-lg border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
             Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Delivery Service Modal ───────────────────────────────────────────────────
+
+interface DeliveryServiceModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSelect: (service: 'domex' | 'citypack') => void;
+  wrappingCount: number;
+}
+
+const DeliveryServiceModal = ({ isOpen, onClose, onSelect, wrappingCount }: DeliveryServiceModalProps) => {
+  if (!isOpen) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between bg-gradient-to-r from-green-600 to-green-700 px-5 py-4">
+          <div>
+            <h3 className="text-base font-bold text-white">Select Delivery Service</h3>
+            <p className="text-xs text-green-100 mt-0.5">
+              {wrappingCount} wrapping order{wrappingCount !== 1 ? 's' : ''} will be exported
+            </p>
+          </div>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors">
+            <XIcon className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-5 space-y-3">
+          <p className="text-xs text-gray-500 mb-1">Choose which delivery service format to generate the Excel file for:</p>
+          <button
+            onClick={() => onSelect('domex')}
+            className="w-full flex items-center gap-3 rounded-xl border-2 border-indigo-200 bg-indigo-50 px-4 py-3.5 text-left hover:border-indigo-400 hover:bg-indigo-100 transition-all active:scale-[0.98]"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white text-sm font-bold shadow-sm">DX</div>
+            <div>
+              <p className="text-sm font-semibold text-indigo-900">Domex</p>
+              <p className="text-xs text-indigo-400 mt-0.5">Standard Domex courier format</p>
+            </div>
+          </button>
+          <button
+            onClick={() => onSelect('citypack')}
+            className="w-full flex items-center gap-3 rounded-xl border-2 border-orange-200 bg-orange-50 px-4 py-3.5 text-left hover:border-orange-400 hover:bg-orange-100 transition-all active:scale-[0.98]"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-orange-500 text-white text-sm font-bold shadow-sm">CP</div>
+            <div>
+              <p className="text-sm font-semibold text-orange-900">City Pack</p>
+              <p className="text-xs text-orange-400 mt-0.5">City Pack bulk upload format</p>
+            </div>
           </button>
         </div>
       </div>
@@ -616,10 +703,14 @@ const toModalOrder = (o: Order): ModalOrder => ({
 // ─── FilterOrderPage ──────────────────────────────────────────────────────────
 
 export function FilterOrderPage() {
-  const [orders, setOrders]         = useState<Order[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [printing, setPrinting]     = useState(false);
-  const [toast, setToast]           = useState<Toast | null>(null);
+  const [orders,   setOrders]   = useState<Order[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [printing, setPrinting] = useState(false);
+  const [toast,    setToast]    = useState<Toast | null>(null);
+
+  // ── NEW: Config flags ──────────────────────────────────────────────────────
+  const [autoGenerateId, setAutoGenerateId] = useState(false);
+  const [isPrint,        setIsPrint]        = useState(false);
 
   const [paymentTypes,  setPaymentTypes]  = useState<{ label: string; value: string }[]>([]);
   const [statusTypes,   setStatusTypes]   = useState<{ label: string; value: string }[]>([]);
@@ -629,27 +720,54 @@ export function FilterOrderPage() {
   const [statusTypeMap,     setStatusTypeMap]     = useState<Record<number, string>>({});
   const [statusTypeOptions, setStatusTypeOptions] = useState<StatusTypeOption[]>([]);
 
-  // Modal state
-  const [actionModalOrder, setActionModalOrder] = useState<ModalOrder | null>(null);
-  const [viewModalOrder,   setViewModalOrder]   = useState<ModalOrder | null>(null);
-  const [viewModalRaw,     setViewModalRaw]     = useState<Order | null>(null);
+  const [selectedOrder,     setSelectedOrder]     = useState<Order | null>(null);
+  const [actionModalOrder,  setActionModalOrder]  = useState<ModalOrder | null>(null);
+  const [viewModalOrder,    setViewModalOrder]    = useState<ModalOrder | null>(null);
+  const [viewModalRaw,      setViewModalRaw]      = useState<Order | null>(null);
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
 
   const [filters, setFilters] = useState<FilterValues>({
-    orderCode: '',
-    customerCode: '',
-    from: today,
-    to: today,
-    paymentType: '',
-    status: '',
-    orderType: '',
+    orderCode: '', customerCode: '', from: today, to: today,
+    paymentType: '', status: '', orderType: '',
   });
+
+  const debouncedOrderCode    = filters.orderCode;
+  const debouncedCustomerCode = filters.customerCode;
 
   const showToast = (type: ToastType, message: string, duration = 4000) => {
     setToast({ type, message });
     if (type !== 'loading') setTimeout(() => setToast(null), duration);
   };
+
+  // ── NEW: Fetch auto-generate-id & is-print config ─────────────────────────
+
+  useEffect(() => {
+    const fetchFeatureConfig = async () => {
+      try {
+        const [autoIdRes, printRes] = await Promise.all([
+          fetch('http://localhost:8080/api/config/auto-generate-id'),
+          fetch('http://localhost:8080/api/config/is-print'),
+        ]);
+
+        if (autoIdRes.ok) {
+          const val = await autoIdRes.text();
+          setAutoGenerateId(val.trim() !== '0' && val.trim() !== '');
+        }
+
+        if (printRes.ok) {
+          const val = await printRes.text();
+          setIsPrint(val.trim() !== '0' && val.trim() !== '');
+        }
+      } catch (err) {
+        console.error('Failed to fetch feature config:', err);
+        // Defaults stay false (disabled) on error — safe fallback
+      }
+    };
+
+    fetchFeatureConfig();
+  }, []);
 
   // ── Fetch all data ──────────────────────────────────────────────────────────
 
@@ -693,26 +811,29 @@ export function FilterOrderPage() {
 
   // ── Filtered orders ─────────────────────────────────────────────────────────
 
+  const isCodeSearch = debouncedOrderCode.trim() !== '' || debouncedCustomerCode.trim() !== '';
+
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const orderDate = new Date(order.createdDate);
-
-      if (filters.orderCode    && !order.billNo?.toLowerCase().includes(filters.orderCode.toLowerCase()))            return false;
-      if (filters.customerCode && !order.customerNumber?.toLowerCase().includes(filters.customerCode.toLowerCase())) return false;
-      if (filters.from         && orderDate < new Date(filters.from))                                                 return false;
-      if (filters.to) {
-        const toDate = new Date(filters.to);
-        toDate.setHours(23, 59, 59, 999);
-        if (orderDate > toDate) return false;
+      if (debouncedOrderCode    && !order.billNo?.toLowerCase().includes(debouncedOrderCode.toLowerCase()))            return false;
+      if (debouncedCustomerCode && !order.customerNumber?.toLowerCase().includes(debouncedCustomerCode.toLowerCase())) return false;
+      if (!isCodeSearch) {
+        if (filters.from && orderDate < new Date(filters.from)) return false;
+        if (filters.to) {
+          const toDate = new Date(filters.to);
+          toDate.setHours(23, 59, 59, 999);
+          if (orderDate > toDate) return false;
+        }
       }
-      if (filters.paymentType  && String(order.paymentTypeId) !== filters.paymentType) return false;
-      if (filters.status       && String(order.statusId)       !== filters.status)      return false;
+      if (filters.paymentType && String(order.paymentTypeId) !== filters.paymentType) return false;
+      if (filters.status      && String(order.statusId)       !== filters.status)      return false;
       if (filters.orderType) {
         if (!order.orderType || order.orderType.toLowerCase() !== filters.orderType.toLowerCase()) return false;
       }
       return true;
     });
-  }, [orders, filters]);
+  }, [orders, debouncedOrderCode, debouncedCustomerCode, isCodeSearch, filters.from, filters.to, filters.paymentType, filters.status, filters.orderType]);
 
   const wrappingOrders = useMemo(() => filteredOrders.filter((o) => o.statusId === 3), [filteredOrders]);
 
@@ -731,10 +852,7 @@ export function FilterOrderPage() {
     statusId?: number,
     note?: string
   ): Promise<void> => {
-    if (action === 'edit') {
-      console.log('Edit action — wire up navigation if needed.');
-      return;
-    }
+    if (action === 'edit') { console.log('Edit action — wire up navigation if needed.'); return; }
 
     if (action === 'special_note') {
       if (note) console.log(`Special note for ${order.orderCode}: ${note}`);
@@ -769,16 +887,64 @@ export function FilterOrderPage() {
     }
   }, []);
 
-  // ── Print wrapping ──────────────────────────────────────────────────────────
+  // ── Shared: save via file picker + move orders to Despatch ─────────────────
 
-  const handlePrintWrapping = async () => {
+  const saveAndDispatch = useCallback(async (wb: XLSX.WorkBook, suggestedName: string) => {
+    let fileHandle: FileSystemFileHandle | null = null;
+    try {
+      fileHandle = await (window as any).showSaveFilePicker({
+        suggestedName,
+        types: [{
+          description: 'Excel Spreadsheet',
+          accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+        }],
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') { setPrinting(false); setToast(null); return; }
+      throw err;
+    }
+
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const writable = await fileHandle.createWritable();
+    await writable.write(new Blob([wbout], { type: 'application/octet-stream' }));
+    await writable.close();
+
+    showToast('loading', `Saved! Updating ${wrappingOrders.length} orders to Despatch...`);
+
+    const results = await Promise.allSettled(
+      wrappingOrders.map((o) => {
+        const id = o.deliveryId ?? o.orderId;
+        return fetch(`http://localhost:8080/api/sales/${id}/status?statusId=4`, { method: 'PATCH' });
+      })
+    );
+
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    const refreshed = await fetch('http://localhost:8080/api/sales/get-all-orders');
+    setOrders(await refreshed.json());
+
+    if (failed === 0) {
+      showToast('success', `✓ Excel saved & ${wrappingOrders.length} orders moved to Despatch.`);
+    } else {
+      showToast('error', `Excel saved, but ${failed} status update(s) failed. Please retry.`);
+    }
+  }, [wrappingOrders]);
+
+  // ── Print Wrapping ──────────────────────────────────────────────────────────
+
+  const handlePrintWrapping = () => {
     if (wrappingOrders.length === 0) {
       showToast('error', 'No Wrapping orders found in the current filter.');
       return;
     }
+    setShowDeliveryModal(true);
+  };
 
+  // ── Export: Domex ───────────────────────────────────────────────────────────
+
+  const handleDomexExport = async () => {
+    setShowDeliveryModal(false);
     setPrinting(true);
-    showToast('loading', 'Preparing Excel file...');
+    showToast('loading', 'Preparing Domex Excel file...');
 
     try {
       const wsData = [
@@ -804,41 +970,74 @@ export function FilterOrderPage() {
         { wch: 12 }, { wch: 10 }, { wch: 20 },
       ];
       XLSX.utils.book_append_sheet(wb, ws, 'Wrapping Orders');
+      await saveAndDispatch(wb, `domex_wrapping_${today}.xlsx`);
+    } catch (err) {
+      console.error(err);
+      showToast('error', 'Something went wrong. Check console for details.');
+    } finally {
+      setPrinting(false);
+    }
+  };
 
-      let fileHandle: FileSystemFileHandle | null = null;
-      try {
-        fileHandle = await (window as any).showSaveFilePicker({
-          suggestedName: `wrapping_orders_${today}.xlsx`,
-          types: [{ description: 'Excel Spreadsheet', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }],
-        });
-      } catch (err: any) {
-        if (err?.name === 'AbortError') { setPrinting(false); setToast(null); return; }
-        throw err;
-      }
+  // ── Export: City Pack ───────────────────────────────────────────────────────
 
-      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      const writable = await fileHandle.createWritable();
-      await writable.write(new Blob([wbout], { type: 'application/octet-stream' }));
-      await writable.close();
+  const handleCityPackExport = async () => {
+    setShowDeliveryModal(false);
+    setPrinting(true);
+    showToast('loading', 'Preparing City Pack Excel file...');
 
-      showToast('loading', `Saved! Updating ${wrappingOrders.length} orders to Despatch...`);
+    try {
+      const headerRow1 = [
+        'CITYPAK TRACKING', 'YOUR REFERENCE',
+        "SENDER'S ADDRESS (FROM)", '', '', '', '',
+        "SENDER'S CONTACT DETAILS", '', '',
+        "RECEIVER'S ADDRESS (TO)", '', '', '', '',
+        "RECEIVER'S CONTACT DETAILS", '', '',
+        'WEIGHT', 'BILLING TYPE*',
+        'ITEM DETAILS', '', '',
+        'CASH ON DELIVERY', '',
+      ];
+      const headerRow2 = [
+        '', '',
+        'NAME*', 'ADDRESS LINE 1*', 'ADDRESS LINE 2', 'ADDRESS LINE 3', 'ADDRESS LINE 4 - CITY*',
+        'CONTACT NAME', 'CONTACT NUMBER 1', 'CONTACT NUMBER 2',
+        'NAME*', 'ADDRESS LINE 1*', 'ADDRESS LINE 2', 'ADDRESS LINE 3', 'ADDRESS LINE 4 - CITY*',
+        'CONTACT NUMBER 1*', 'CONTACT NUMBER 2', 'NIC',
+        'g', '',
+        'ITEM TYPE*', 'NUMBER OF PIECES*', 'DESCRIPTION',
+        'IS CASH ON DELIVERY?*', 'COLLECTION AMOUNT',
+      ];
 
-      const results = await Promise.allSettled(
-        wrappingOrders.map((o) => {
-          const id = o.deliveryId ?? o.orderId;
-          return fetch(`http://localhost:8080/api/sales/${id}/status?statusId=4`, { method: 'PATCH' });
-        })
-      );
+      const dataRows = wrappingOrders.map((o) => {
+        const totalGrams = Math.round(parseFloat(o.weight ?? '0') || 0);
+        return [
+          '', o.billNo ?? '',
+          'Petal Pink',
+          'No.76,Near The School,Maha Kalupahana,Matugama', '', '', 'Matugama',
+          '', '0764048774', '',
+          o.customerName ?? '', o.address ?? '', '', '', '',
+          o.phoneOne ?? '', o.phoneTwo ?? '', '',
+          totalGrams, 'SENDER ACCOUNT',
+          'PARCEL', 1, '',
+          o.totalOrderPrice > 0 ? 'YES' : 'NO',
+          o.totalOrderPrice ?? 0,
+        ];
+      });
 
-      const failed = results.filter((r) => r.status === 'rejected').length;
-      const refreshed = await fetch('http://localhost:8080/api/sales/get-all-orders');
-      setOrders(await refreshed.json());
-
-      if (failed === 0) {
-        showToast('success', `✓ Excel saved & ${wrappingOrders.length} orders moved to Despatch.`);
-      } else {
-        showToast('error', `Excel saved, but ${failed} status update(s) failed. Please retry.`);
-      }
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([headerRow1, headerRow2, ...dataRows]);
+      ws['!cols'] = [
+        { wch: 18 }, { wch: 18 },
+        { wch: 20 }, { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 18 },
+        { wch: 18 }, { wch: 18 }, { wch: 18 },
+        { wch: 22 }, { wch: 28 }, { wch: 20 }, { wch: 20 }, { wch: 18 },
+        { wch: 16 }, { wch: 16 }, { wch: 14 },
+        { wch: 10 }, { wch: 16 },
+        { wch: 12 }, { wch: 18 }, { wch: 20 },
+        { wch: 20 }, { wch: 18 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+      await saveAndDispatch(wb, `citypack_wrapping_${today}.xlsx`);
     } catch (err) {
       console.error(err);
       showToast('error', 'Something went wrong. Check console for details.');
@@ -861,34 +1060,18 @@ export function FilterOrderPage() {
     { header: 'Total',        accessor: (row) => `${(row.totalOrderPrice ?? 0).toFixed(2)}`, className: 'font-semibold' },
     {
       header: 'Status',
-      accessor: (row) => {
-        const statusStyles: Record<number, { bg: string; fg: string }> = {
-          1:  { bg: 'rgb(145,200,228)',      fg: 'rgb(92,136,196)'    },
-          2:  { bg: 'rgba(206,206,206,1)',   fg: 'rgba(100,100,100,1)' },
-          3:  { bg: 'rgb(255,255,102)',      fg: 'rgb(128,128,0)'     },
-          4:  { bg: 'rgb(230,204,255)',      fg: 'rgb(102,0,153)'     },
-          5:  { bg: 'rgb(198,239,206)',      fg: 'rgb(0,97,0)'        },
-          6:  { bg: 'rgb(255,178,102)',      fg: 'rgb(207,83,0)'      },
-          7:  { bg: 'rgb(255,204,204)',      fg: 'rgb(178,34,34)'     },
-          12: { bg: 'rgb(255,180,180)',      fg: 'rgb(255,68,52)'     },
-          13: { bg: 'rgb(152,161,188)',      fg: 'rgb(85,88,121)'     },
-        };
-        const label = statusTypeMap[row.statusId] ?? '-';
-        const style = statusStyles[row.statusId] ?? { bg: '#fff', fg: '#000' };
-        return (
-          <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold" style={{ backgroundColor: style.bg, color: style.fg }}>
-            {label}
-          </span>
-        );
-      },
+      accessor: (row) => (
+        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(row.statusId)}`}>
+          {statusTypeMap[row.statusId] ?? '-'}
+        </span>
+      ),
     },
-    { header: 'Date',         accessor: (row) => new Date(row.createdDate).toLocaleDateString() },
-    { header: 'Order Type',   accessor: (row) => row.orderType ?? '-' },
+    { header: 'Date',       accessor: (row) => new Date(row.createdDate).toLocaleDateString() },
+    { header: 'Order Type', accessor: (row) => row.orderType ?? '-' },
     {
       header: 'Actions',
       accessor: (row) => (
         <div className="flex items-center gap-1.5">
-          {/* View button */}
           <button
             onClick={() => handleViewOrder(row)}
             title="View order details"
@@ -896,7 +1079,6 @@ export function FilterOrderPage() {
           >
             <EyeIcon className="h-3.5 w-3.5" />
           </button>
-          {/* Actions button */}
           <button
             onClick={() => setActionModalOrder(toModalOrder(row))}
             title="Order actions"
@@ -914,16 +1096,16 @@ export function FilterOrderPage() {
   return (
     <div className="p-6 h-[calc(100vh-4rem)] flex flex-col relative">
 
-      {/* Action Modal */}
       <OrderActionModal
         order={actionModalOrder}
         isOpen={!!actionModalOrder}
         onClose={() => setActionModalOrder(null)}
         onAction={handleOrderAction}
         statusTypes={statusTypeOptions}
+        autoGenerateId={autoGenerateId}
+        isPrint={isPrint}
       />
 
-      {/* View Modal */}
       <OrderViewModal
         order={viewModalOrder}
         isOpen={!!viewModalOrder}
@@ -933,7 +1115,16 @@ export function FilterOrderPage() {
         rawOrder={viewModalRaw}
       />
 
-      {/* Toast */}
+      <DeliveryServiceModal
+        isOpen={showDeliveryModal}
+        onClose={() => setShowDeliveryModal(false)}
+        onSelect={(service) => {
+          if (service === 'domex') handleDomexExport();
+          else handleCityPackExport();
+        }}
+        wrappingCount={wrappingOrders.length}
+      />
+
       {toast && (
         <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 rounded-xl px-5 py-3.5 shadow-2xl text-sm font-medium transition-all duration-300 ${
           toast.type === 'success' ? 'bg-green-600 text-white'
@@ -947,7 +1138,6 @@ export function FilterOrderPage() {
         </div>
       )}
 
-      {/* Page header */}
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Advanced Order Filter</h1>
         {wrappingOrders.length > 0 && (
@@ -981,11 +1171,15 @@ export function FilterOrderPage() {
             Loading orders...
           </div>
         ) : (
-          <DataTable columns={columns} data={filteredOrders} />
+          <DataTable
+            columns={columns}
+            data={filteredOrders}
+            selectedRow={selectedOrder}
+            onRowClick={setSelectedOrder}
+          />
         )}
       </div>
 
-      {/* Print Wrapping button */}
       <div className="absolute bottom-6 right-6">
         <button
           onClick={handlePrintWrapping}

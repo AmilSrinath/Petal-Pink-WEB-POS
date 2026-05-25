@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, Column } from '../components/DataTable';
 
@@ -73,6 +73,13 @@ export function PaymentPage() {
     paymentStatus: '',
   });
 
+  // Keep a ref that always holds the latest orderCode so onKeyDown
+  // never reads a stale closure value — this is what caused the double-Enter bug.
+  const orderCodeRef = useRef('');
+
+  // Guard: prevents a second search firing while one is already running
+  const isSearchingRef = useRef(false);
+
   // Fetch payment status types once on mount
   useEffect(() => {
     fetch('http://localhost:8080/api/status/types/2')
@@ -131,36 +138,8 @@ export function PaymentPage() {
     return map;
   }, [paymentTypes]);
 
-  const updatePaymentStatus = async (orderId: number, statusId: number) => {
-    try {
-      const res = await fetch(
-        `http://localhost:8080/api/payment-report/status-by-order?orderId=${orderId}&statusId=${statusId}`,
-        { method: 'PUT' }
-      );
-      if (!res.ok) throw new Error('Failed to update status');
-      fetchPayments(filters.from, filters.to);
-    } catch (err) {
-      alert('Error updating payment status');
-    }
-  };
-
-  // Options for dropdowns — dynamically built from API
-  const statusOptions = paymentStatuses.map((s) => ({
-    label: s.statusType,
-    value: String(s.statusId),
-  }));
-
-  const profileOptions = businessProfiles.map((p) => ({
-    label: p.bussinessProfileName,
-    value: String(p.bussinessProfileId),
-  }));
-
-  const paymentTypeOptions = paymentTypes.map((t) => ({
-    label: t.paymentType,
-    value: String(t.paymentTypeId),
-  }));
-
-  const fetchPayments = useCallback(async (from: string, to: string) => {
+  // Fetch by date range
+  const fetchPaymentsByDate = useCallback(async (from: string, to: string) => {
     if (!from || !to) return;
     setLoading(true);
     setError(null);
@@ -176,30 +155,106 @@ export function PaymentPage() {
       setPayments([]);
     } finally {
       setLoading(false);
+      isSearchingRef.current = false;
     }
   }, []);
 
+  // Fetch wide range then filter client-side by order code
+  const fetchPaymentsByOrderCode = useCallback(async (orderCode: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const wideFrom = '2020-01-01';
+      const wideTo = new Date().toISOString().split('T')[0];
+      const res = await fetch(
+        `http://localhost:8080/api/payment-report?from=${wideFrom}&to=${wideTo}`
+      );
+      if (!res.ok) throw new Error(`Server error: ${res.status} ${res.statusText}`);
+      const data: PaymentRecord[] = await res.json();
+      const matched = data.filter((p) =>
+        p.orderCode.toLowerCase().includes(orderCode.toLowerCase())
+      );
+      setPayments(matched);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch payments');
+      setPayments([]);
+    } finally {
+      setLoading(false);
+      isSearchingRef.current = false;
+    }
+  }, []);
+
+  // Unified search — reads orderCode from ref so it's always fresh
+  const handleSearch = useCallback(
+    (overrideFilters?: Filters) => {
+      // Block duplicate calls while a search is already in-flight
+      if (isSearchingRef.current) return;
+      isSearchingRef.current = true;
+
+      const activeFilters = overrideFilters ?? { ...filters, orderCode: orderCodeRef.current };
+      const code = activeFilters.orderCode.trim();
+
+      if (code) {
+        fetchPaymentsByOrderCode(code);
+      } else {
+        fetchPaymentsByDate(activeFilters.from, activeFilters.to);
+      }
+    },
+    [filters, fetchPaymentsByDate, fetchPaymentsByOrderCode]
+  );
+
+  const updatePaymentStatus = async (orderId: number, statusId: number) => {
+    try {
+      const res = await fetch(
+        `http://localhost:8080/api/payment-report/status-by-order?orderId=${orderId}&statusId=${statusId}`,
+        { method: 'PUT' }
+      );
+      if (!res.ok) throw new Error('Failed to update status');
+      handleSearch();
+    } catch (err) {
+      alert('Error updating payment status');
+    }
+  };
+
+  // Options for dropdowns
+  const statusOptions = paymentStatuses.map((s) => ({
+    label: s.statusType,
+    value: String(s.statusId),
+  }));
+
+  const profileOptions = businessProfiles.map((p) => ({
+    label: p.bussinessProfileName,
+    value: String(p.bussinessProfileId),
+  }));
+
+  const paymentTypeOptions = paymentTypes.map((t) => ({
+    label: t.paymentType,
+    value: String(t.paymentTypeId),
+  }));
+
   // Initial load
   useEffect(() => {
-    fetchPayments(filters.from, filters.to);
+    fetchPaymentsByDate(filters.from, filters.to);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Apply client-side filters
+  // Apply remaining client-side filters (paymentType, paymentStatus)
   const filtered = payments.filter((p) => {
-    if (
-      filters.orderCode &&
-      !p.orderCode.toLowerCase().includes(filters.orderCode.toLowerCase())
-    )
-      return false;
-
     if (filters.paymentType && String(p.paymentTypeId) !== filters.paymentType)
       return false;
-
     if (filters.paymentStatus && String(p.statusId) !== filters.paymentStatus)
       return false;
-
     return true;
   });
+
+  const paidCount = filtered.filter(
+    (p) =>
+      statusMap[p.statusId]?.label.toLowerCase().includes('not paid') === false &&
+      statusMap[p.statusId]?.label.toLowerCase().includes('paid')
+  ).length;
+
+  const notPaidCount = filtered.filter((p) =>
+    statusMap[p.statusId]?.label.toLowerCase().includes('not paid')
+  ).length;
 
   const columns: Column<PaymentRecord>[] = [
     {
@@ -286,18 +341,30 @@ export function PaymentPage() {
             type: 'text',
             label: 'Order Code',
             value: filters.orderCode,
-            onChange: (v) => setFilters((f) => ({ ...f, orderCode: v })),
+            placeholder: 'Type & press Enter…',
+            onChange: (v) => {
+              orderCodeRef.current = v;
+              setFilters((f) => ({ ...f, orderCode: v }));
+            },
+            onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === 'Enter') {
+                // Use the ref value — always current, never stale
+                handleSearch({ ...filters, orderCode: orderCodeRef.current });
+              }
+            },
           },
           {
             type: 'date',
             label: 'From',
             value: filters.from,
+            disabled: !!filters.orderCode.trim(),
             onChange: (v) => setFilters((f) => ({ ...f, from: v })),
           },
           {
             type: 'date',
             label: 'To',
             value: filters.to,
+            disabled: !!filters.orderCode.trim(),
             onChange: (v) => setFilters((f) => ({ ...f, to: v })),
           },
           {
@@ -323,7 +390,11 @@ export function PaymentPage() {
           },
         ]}
         totalCount={filtered.length}
-        onSearch={() => fetchPayments(filters.from, filters.to)}
+        counts={[
+          { label: 'Paid', value: paidCount, className: 'text-green-700' },
+          { label: 'Not Paid', value: notPaidCount, className: 'text-red-600' },
+        ]}
+        onSearch={() => handleSearch()}
       />
 
       {error && (

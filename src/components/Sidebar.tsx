@@ -54,11 +54,11 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
         // { path: '/inventory/item-list', label: 'Item List' },
         { path: '/inventory/purchase-order', label: 'Purchase Order' },
         { path: '/inventory/purchase-order-list', label: 'PO List' },
-        { path: '/inventory/grn', label: 'Good Receive Note' },
-        { path: '/inventory/grn-list', label: 'GRN List' },
+        // { path: '/inventory/grn', label: 'Good Receive Note' },
+        { path: '/inventory/grn-list', label: 'Good Receive Notes(GRN)' },
         { path: '/inventory/stock-management', label: 'Stock Management' },
         { path: '/inventory/supplier-management', label: 'Supplier' },
-        { path: '/inventory/stock-location', label: 'Stock Location' },
+        // { path: '/inventory/stock-location', label: 'Stock Location' },
         { path: '/inventory/stock-transfer', label: 'Stock Transfer' },
       ]
     },
@@ -118,6 +118,8 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
         { path: '/configurations/manage-user-auth', label: 'Manage User Auth' },
         { path: '/configurations/manage-order-type', label: 'Manage Order Type' },
         { path: '/configurations/manage-business-profile', label: 'Manage Business Profile' },
+        { path: '/configurations/stock-location', label: 'Stock Location' },
+        { path: '/configurations/stock-adj', label: 'Stock Adjustment' },
       ]
     },
   ];

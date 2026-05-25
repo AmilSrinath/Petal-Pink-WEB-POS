@@ -17,6 +17,10 @@ import {
   AlertCircleIcon,
   SendIcon,
   FileTextIcon,
+  HistoryIcon,
+  AlertTriangleIcon,
+  ChevronDownIcon,
+  ShoppingBagIcon,
 } from 'lucide-react';
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, Column } from '../components/DataTable';
@@ -37,6 +41,15 @@ interface Item {
   status: number;
   subItemCategoryId: number;
   mainItemCategoryId: number;
+}
+
+interface CourierBag {
+  itemId: number;
+  itemBarCode: number;
+  itemName: string;
+  itemCodePrefix: string;
+  subItemCategoryName: string;
+  status: number;
 }
 
 interface SubItemCategoryDTO {
@@ -68,7 +81,6 @@ interface CartItem {
   discountType: 'amount' | 'pct';
 }
 
-// ── paymentTypeId added ──
 interface Order {
   deliveryId: number;
   orderId: number;
@@ -172,13 +184,28 @@ interface BusinessProfile {
   userId: number;
 }
 
+// ─── Stock Check Interfaces ───────────────────────────────────────────────────
+
+interface IngredientStatus {
+  subItemId: number;
+  subItemName: string;
+  requiredQty: number;
+  availableQty: number;
+  sufficient: boolean;
+}
+
+interface StockCheckResponse {
+  available: boolean;
+  message: string;
+  ingredientStatuses: IngredientStatus[];
+}
+
 // ─── Today's date helper ──────────────────────────────────────────────────────
 
 const getTodayStr = (): string => new Date().toISOString().split('T')[0];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// ── CHANGE 3: Darker status badge colors ──
 const statusBadgeClass = (statusId: number): string => {
   switch (statusId) {
     case 1:  return 'bg-blue-200 text-blue-900';
@@ -190,11 +217,11 @@ const statusBadgeClass = (statusId: number): string => {
     case 7:  return 'bg-gray-300 text-gray-800';
     case 12: return 'bg-rose-200 text-rose-900';
     case 13: return 'bg-cyan-200 text-cyan-900';
+    case 16: return 'bg-orange-200 text-orange-900';
     default: return 'bg-gray-200 text-gray-700';
   }
 };
 
-// ── paymentTypeId included in mapping ──
 const mapApiToOrder = (d: DeliveryOrderResponse): Order => ({
   deliveryId: d.deliveryId,
   orderId: d.orderId,
@@ -223,15 +250,14 @@ const isSuperAdmin = (): boolean => {
 const isStatusButtonAllowed = (currentStatusId: number, targetStatusId: number): boolean => {
   if (isSuperAdmin()) return true;
   if (currentStatusId === 5 || currentStatusId === 7) return false;
-
-  const allowedNext: Record<number, number> = {
-    2:  3,
-    3:  4,
-    4:  5,
-    12: 6,
+  if (currentStatusId === 2 && targetStatusId === 7) return true;
+  const allowedTransitions: Record<number, number[]> = {
+    2:  [3, 7],
+    3:  [4],
+    4:  [5, 16],   // ← 16 = Damage added here
+    12: [6],
   };
-
-  return allowedNext[currentStatusId] === targetStatusId;
+  return (allowedTransitions[currentStatusId] ?? []).includes(targetStatusId);
 };
 
 // ─── Shared style constants ───────────────────────────────────────────────────
@@ -259,6 +285,235 @@ const FieldRow = ({ label, children, alignStart = false }: FieldRowProps) => (
     <div className="flex-1 min-w-0">{children}</div>
   </div>
 );
+
+// ─── Courier Bag Combobox ─────────────────────────────────────────────────────
+
+interface CourierBagComboboxProps {
+  bags: CourierBag[];
+  selectedId: number | null;
+  onChange: (bag: CourierBag | null) => void;
+  isLoading: boolean;
+}
+
+const BAG_SIZE_META: Record<string, { emoji: string; color: string; border: string; dot: string }> = {
+  small:  { emoji: '🟡', color: 'bg-amber-50 text-amber-800',   border: 'border-amber-300',  dot: 'bg-amber-400' },
+  medium: { emoji: '🔵', color: 'bg-blue-50 text-blue-800',     border: 'border-blue-300',   dot: 'bg-blue-400' },
+  large:  { emoji: '🟢', color: 'bg-emerald-50 text-emerald-800', border: 'border-emerald-300', dot: 'bg-emerald-400' },
+};
+
+const getBagMeta = (name: string) => {
+  const lower = name.toLowerCase();
+  if (lower.includes('small'))  return BAG_SIZE_META.small;
+  if (lower.includes('medium')) return BAG_SIZE_META.medium;
+  if (lower.includes('large'))  return BAG_SIZE_META.large;
+  return { emoji: '📦', color: 'bg-gray-50 text-gray-700', border: 'border-gray-300', dot: 'bg-gray-400' };
+};
+
+const CourierBagCombobox = ({ bags, selectedId, onChange, isLoading }: CourierBagComboboxProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [highlightedIdx, setHighlightedIdx] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  const selectedBag = bags.find(b => b.itemId === selectedId) ?? null;
+
+  const filtered = search.trim()
+    ? bags.filter(b => b.itemName.toLowerCase().includes(search.toLowerCase()))
+    : bags;
+
+  const open = () => {
+    setIsOpen(true);
+    setSearch('');
+    setHighlightedIdx(0);
+    setTimeout(() => searchRef.current?.focus(), 50);
+  };
+
+  const close = () => {
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  const select = (bag: CourierBag | null) => {
+    onChange(bag);
+    close();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!isOpen) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIdx(i => Math.min(i + 1, filtered.length));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIdx(i => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightedIdx === 0) select(null);
+      else if (filtered[highlightedIdx - 1]) select(filtered[highlightedIdx - 1]);
+    } else if (e.key === 'Escape') {
+      close();
+    }
+  };
+
+  useEffect(() => {
+    if (!listRef.current) return;
+    const item = listRef.current.children[highlightedIdx] as HTMLElement;
+    item?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedIdx]);
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        close();
+      }
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
+        <RefreshCwIcon className="h-3.5 w-3.5 animate-spin text-teal-500" />
+        Loading bags…
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="relative" onKeyDown={handleKeyDown}>
+      <button
+        type="button"
+        onClick={() => isOpen ? close() : open()}
+        className={`flex h-9 w-full items-center gap-2 rounded-md border px-3 text-sm transition-all bg-white
+          ${isOpen
+            ? 'border-teal-500 ring-1 ring-teal-500'
+            : selectedBag
+              ? `border-teal-300 ${getBagMeta(selectedBag.itemName).color}`
+              : 'border-gray-300 text-gray-500 hover:border-gray-400'
+          }`}
+      >
+        {selectedBag ? (
+          <>
+            <span className="text-base leading-none">{getBagMeta(selectedBag.itemName).emoji}</span>
+            <span className="flex-1 text-left text-xs font-semibold truncate">{selectedBag.itemName}</span>
+            <span className="text-xs font-mono text-gray-400 shrink-0">{selectedBag.itemCodePrefix}</span>
+          </>
+        ) : (
+          <>
+            <ShoppingBagIcon className="h-4 w-4 text-gray-400 shrink-0" />
+            <span className="flex-1 text-left text-gray-400">Select courier bag…</span>
+          </>
+        )}
+        <ChevronDownIcon className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {selectedBag && !isOpen && (
+        <div className={`mt-1.5 flex items-center justify-between rounded-lg border px-3 py-2 ${getBagMeta(selectedBag.itemName).border} ${getBagMeta(selectedBag.itemName).color}`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`h-2 w-2 rounded-full shrink-0 ${getBagMeta(selectedBag.itemName).dot}`} />
+            <span className="text-xs font-semibold truncate">{selectedBag.itemName}</span>
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); select(null); }}
+            className="ml-2 shrink-0 rounded-full p-0.5 hover:bg-black/10 transition-colors"
+            title="Clear selection"
+          >
+            <XIcon className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
+      {isOpen && (
+        <div className="absolute top-full left-0 z-50 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden">
+          <div className="border-b border-gray-100 p-2">
+            <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5">
+              <SearchIcon className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+              <input
+                ref={searchRef}
+                type="text"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setHighlightedIdx(0); }}
+                placeholder="Search bags…"
+                className="flex-1 bg-transparent text-xs outline-none text-gray-700 placeholder-gray-400"
+              />
+              {search && (
+                <button onClick={() => { setSearch(''); setHighlightedIdx(0); }} className="text-gray-400 hover:text-gray-600">
+                  <XIcon className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <ul ref={listRef} className="max-h-52 overflow-y-auto py-1">
+            <li>
+              <button
+                type="button"
+                onClick={() => select(null)}
+                className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors
+                  ${highlightedIdx === 0 ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
+                onMouseEnter={() => setHighlightedIdx(0)}
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-dashed border-gray-300 text-gray-400">
+                  <XIcon className="h-3.5 w-3.5" />
+                </span>
+                <span className="text-gray-500 italic">No bag selected</span>
+                {selectedId === null && <CheckCircleIcon className="ml-auto h-4 w-4 text-teal-500" />}
+              </button>
+            </li>
+
+            {filtered.length === 0 && (
+              <li className="px-3 py-4 text-center text-xs text-gray-400">No bags match your search.</li>
+            )}
+
+            {filtered.map((bag, idx) => {
+              const meta = getBagMeta(bag.itemName);
+              const isHighlighted = highlightedIdx === idx + 1;
+              const isSelected = selectedId === bag.itemId;
+              return (
+                <li key={bag.itemId}>
+                  <button
+                    type="button"
+                    onClick={() => select(bag)}
+                    onMouseEnter={() => setHighlightedIdx(idx + 1)}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors
+                      ${isHighlighted ? 'bg-teal-50' : 'hover:bg-gray-50'}`}
+                  >
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-lg ${meta.border} ${meta.color}`}>
+                      {meta.emoji}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-semibold ${isSelected ? 'text-teal-700' : 'text-gray-800'}`}>
+                          {bag.itemName}
+                        </span>
+                        {isSelected && (
+                          <span className="text-[10px] font-bold bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-full">
+                            Selected
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        Code: <span className="font-mono font-medium text-gray-500">{bag.itemCodePrefix}</span>
+                      </div>
+                    </div>
+                    {isSelected && <CheckCircleIcon className="h-4 w-4 text-teal-500 shrink-0" />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div className="border-t border-gray-100 bg-gray-50 px-3 py-1.5">
+            <p className="text-[10px] text-gray-400">↑↓ navigate · Enter select · Esc close</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── Action Button Config ─────────────────────────────────────────────────────
 
@@ -354,6 +609,15 @@ const actionButtons: ActionButton[] = [
     statusId: 13,
   },
   {
+    label: 'Damage',
+    icon: <AlertTriangleIcon className="h-4 w-4" />,
+    color: 'bg-orange-500',
+    hoverColor: 'hover:bg-orange-600',
+    textColor: 'text-white',
+    action: 'status',
+    statusId: 16,
+  },
+  {
     label: 'Special Note',
     icon: <FileTextIcon className="h-4 w-4" />,
     color: 'bg-violet-500',
@@ -363,6 +627,293 @@ const actionButtons: ActionButton[] = [
   },
 ];
 
+// ─── Customer Order History Modal ─────────────────────────────────────────────
+
+interface CustomerOrderHistoryModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  customerName: string;
+  phoneOne: string;
+  orders: DeliveryOrderResponse[];
+  isLoading: boolean;
+  statusTypes: StatusTypeOption[];
+}
+
+const CustomerOrderHistoryModal = ({
+  isOpen,
+  onClose,
+  customerName,
+  phoneOne,
+  orders,
+  isLoading,
+  statusTypes,
+}: CustomerOrderHistoryModalProps) => {
+  if (!isOpen) return null;
+
+  const sorted = [...orders].sort(
+    (a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime()
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+
+        <div className="flex items-center justify-between bg-gradient-to-r from-indigo-600 to-indigo-700 px-5 py-4 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20">
+              <HistoryIcon className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">Order History</h3>
+              <p className="text-xs text-indigo-200 mt-0.5">
+                {customerName || phoneOne} · {phoneOne}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors"
+          >
+            <XIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        {!isLoading && sorted.length > 0 && (
+          <div className="flex items-center gap-6 border-b border-gray-100 bg-gray-50 px-5 py-3 shrink-0">
+            <div className="text-xs text-gray-500">
+              <span className="font-semibold text-gray-800 text-sm">{sorted.length}</span> total orders
+            </div>
+            <div className="text-xs text-gray-500">
+              <span className="font-semibold text-green-700 text-sm">
+                {sorted.filter(o => o.statusId === 5).length}
+              </span> delivered
+            </div>
+            <div className="text-xs text-gray-500">
+              <span className="font-semibold text-yellow-700 text-sm">
+                {sorted.filter(o => o.statusId !== 5 && o.statusId !== 7).length}
+              </span> active
+            </div>
+            <div className="text-xs text-gray-500">
+              <span className="font-semibold text-gray-600 text-sm">
+                {sorted.filter(o => o.statusId === 7).length}
+              </span> cancelled
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-y-auto flex-1 p-5">
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
+              <RefreshCwIcon className="h-8 w-8 animate-spin text-indigo-400" />
+              <span className="text-sm">Loading order history…</span>
+            </div>
+          ) : sorted.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
+              <PackageIcon className="h-10 w-10 text-gray-300" />
+              <span className="text-sm">No orders found for this customer.</span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sorted.map((order, idx) => {
+                const statusLabel = statusTypes.find(s => s.statusId === order.statusId)?.statusType ?? `#${order.statusId}`;
+                const isDelivered = order.statusId === 5;
+                const isCancelled = order.statusId === 7;
+                return (
+                  <div
+                    key={order.deliveryId}
+                    className={`rounded-xl border p-4 transition-colors ${
+                      idx === 0
+                        ? 'border-indigo-200 bg-indigo-50/50'
+                        : 'border-gray-200 bg-white hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                          idx === 0 ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600'
+                        }`}>
+                          {idx === 0 ? '★' : idx + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            {order.orderCode?.trim() ? (
+                              <span className="text-sm font-semibold text-gray-900 font-mono">
+                                {order.orderCode}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">No tracking code</span>
+                            )}
+                            {idx === 0 && (
+                              <span className="text-xs font-medium bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
+                                Latest
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
+                            <span>
+                              <span className="font-medium text-gray-700">Date:</span>{' '}
+                              {order.createdDate ? order.createdDate.split('T')[0] : '—'}
+                            </span>
+                            <span>
+                              <span className="font-medium text-gray-700">Type:</span>{' '}
+                              {order.orderType || '—'}
+                            </span>
+                            <span>
+                              <span className="font-medium text-gray-700">Delivery ID:</span>{' '}
+                              #{order.deliveryId}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(order.statusId)}`}>
+                          {statusLabel}
+                        </span>
+                        <span className="text-sm font-bold text-gray-800">
+                          Rs. {order.totalOrderPrice?.toFixed(2) ?? '0.00'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 pt-2">
+                      <span className="text-xs text-gray-500">
+                        <span className="font-medium text-gray-700">COD:</span>{' '}
+                        Rs. {order.codAmount?.toFixed(2) ?? '0.00'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        <span className="font-medium text-gray-700">Paid:</span>{' '}
+                        Rs. {order.paidAmount?.toFixed(2) ?? '0.00'}
+                      </span>
+                      {order.deliveredDate && (
+                        <span className="text-xs text-green-600">
+                          <span className="font-medium">Delivered:</span>{' '}
+                          {order.deliveredDate.split('T')[0]}
+                        </span>
+                      )}
+                      {!isDelivered && !isCancelled && (
+                        <span className="ml-auto text-xs font-medium text-amber-600 flex items-center gap-1">
+                          <ClockIcon className="h-3 w-3" />
+                          In progress
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-100 shrink-0">
+          <button
+            onClick={onClose}
+            className="w-full rounded-lg border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Last Order Not Delivered Confirmation Modal ──────────────────────────────
+
+interface UndeliveredWarningModalProps {
+  isOpen: boolean;
+  lastOrder: DeliveryOrderResponse | null;
+  statusTypes: StatusTypeOption[];
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+const UndeliveredWarningModal = ({
+  isOpen,
+  lastOrder,
+  statusTypes,
+  onConfirm,
+  onCancel,
+}: UndeliveredWarningModalProps) => {
+  if (!isOpen || !lastOrder) return null;
+
+  const statusLabel = statusTypes.find(s => s.statusId === lastOrder.statusId)?.statusType ?? `#${lastOrder.statusId}`;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+    >
+      <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
+
+        <div className="flex flex-col items-center gap-3 bg-amber-50 border-b border-amber-100 px-6 py-5">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 border-2 border-amber-300">
+            <AlertTriangleIcon className="h-7 w-7 text-amber-600" />
+          </div>
+          <div className="text-center">
+            <h3 className="text-base font-bold text-gray-900">Last Order Not Delivered</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              This customer has an undelivered order
+            </p>
+          </div>
+        </div>
+
+        <div className="px-6 py-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-1.5 mb-4">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-gray-500 font-medium">Order Code</span>
+              <span className="font-semibold text-gray-800 font-mono">
+                {lastOrder.orderCode?.trim() || '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-gray-500 font-medium">Date</span>
+              <span className="font-semibold text-gray-800">
+                {lastOrder.createdDate ? lastOrder.createdDate.split('T')[0] : '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-gray-500 font-medium">Amount</span>
+              <span className="font-bold text-gray-900">
+                Rs. {lastOrder.totalOrderPrice?.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-gray-500 font-medium">Status</span>
+              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(lastOrder.statusId)}`}>
+                {statusLabel}
+              </span>
+            </div>
+          </div>
+
+          <p className="text-sm text-gray-700 text-center">
+            Are you sure you want to place a new order?
+          </p>
+        </div>
+
+        <div className="px-6 pb-5 flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 rounded-lg border border-gray-300 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            No, Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 rounded-lg bg-amber-500 py-2.5 text-sm font-bold text-white hover:bg-amber-600 transition-colors shadow-sm"
+          >
+            Yes, Continue
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Order Action Modal ───────────────────────────────────────────────────────
 
 interface OrderActionModalProps {
@@ -371,18 +922,26 @@ interface OrderActionModalProps {
   onClose: () => void;
   onAction: (order: Order, action: string, statusId?: number, note?: string) => Promise<void>;
   statusTypes: StatusTypeOption[];
+  autoGenerateId: boolean;
+  isPrint: boolean;
 }
 
-const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: OrderActionModalProps) => {
+const OrderActionModal = ({
+  order,
+  isOpen,
+  onClose,
+  onAction,
+  statusTypes,
+  autoGenerateId,
+  isPrint,
+}: OrderActionModalProps) => {
   const [specialNote, setSpecialNote] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
-
   const [showRemarkInput, setShowRemarkInput] = useState(false);
   const [remarkText, setRemarkText] = useState('');
   const [isLoadingRemark, setIsLoadingRemark] = useState(false);
   const [isSavingRemark, setIsSavingRemark] = useState(false);
   const [remarkError, setRemarkError] = useState<string | null>(null);
-
   const [loadingStatusId, setLoadingStatusId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -469,19 +1028,23 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
       setLoadingStatusId(3);
       setActionError(null);
       try {
-        const res = await fetch(
-          `http://localhost:8080/api/sales/${order.deliveryId}/generate-tracking`,
-          { method: 'POST' }
-        );
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(errText || `Server error: ${res.status}`);
+        let trackingCode = order.orderCode?.trim() ?? '';
+        if (autoGenerateId) {
+          const res = await fetch(
+            `http://localhost:8080/api/sales/${order.deliveryId}/generate-tracking`,
+            { method: 'POST' }
+          );
+          if (!res.ok) {
+            const errText = await res.text();
+            throw new Error(errText || `Server error: ${res.status}`);
+          }
+          trackingCode = await res.text();
         }
-        const trackingCode = await res.text();
         await onAction(order, 'wrapping', 3, trackingCode);
+        if (isPrint) window.print();
         onClose();
       } catch (err: any) {
-        setActionError(err.message ?? 'Failed to generate tracking');
+        setActionError(err.message ?? 'Failed to process wrapping');
       } finally {
         setLoadingStatusId(null);
       }
@@ -552,7 +1115,6 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
           </button>
         </div>
 
-        {/* Sub-header */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-gray-50 border-b border-gray-100 px-5 py-3">
           <div className="text-xs text-gray-500">
             <span className="font-medium text-gray-700">Delivery ID:</span> #{order.deliveryId}
@@ -573,11 +1135,30 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
           </div>
         </div>
 
+        <div className="flex gap-2 px-5 pt-3">
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+            autoGenerateId
+              ? 'bg-teal-50 text-teal-700 border border-teal-200'
+              : 'bg-gray-100 text-gray-400 border border-gray-200'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${autoGenerateId ? 'bg-teal-500' : 'bg-gray-400'}`} />
+            Auto ID {autoGenerateId ? 'On' : 'Off'}
+          </span>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+            isPrint
+              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+              : 'bg-gray-100 text-gray-400 border border-gray-200'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${isPrint ? 'bg-blue-500' : 'bg-gray-400'}`} />
+            Print {isPrint ? 'On' : 'Off'}
+          </span>
+        </div>
+
         {actionError && (
           <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
             <AlertCircleIcon className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-red-700">Status update failed</p>
+              <p className="text-xs font-semibold text-red-700">Action failed</p>
               <p className="text-xs text-red-600 mt-0.5 break-words">{actionError}</p>
             </div>
             <button onClick={() => setActionError(null)} className="shrink-0 text-red-400 hover:text-red-600">
@@ -610,7 +1191,6 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
                 );
               })}
             </div>
-
           ) : showNoteInput ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -641,14 +1221,12 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
                 </button>
               </div>
             </div>
-
           ) : showRemarkInput ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                 <FileTextIcon className="h-4 w-4 text-violet-500" />
                 Order Remark
               </div>
-
               {remarkError && (
                 <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
                   <AlertCircleIcon className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
@@ -658,7 +1236,6 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
                   </button>
                 </div>
               )}
-
               {isLoadingRemark ? (
                 <div className="flex items-center justify-center py-6 gap-2 text-gray-400 text-sm">
                   <RefreshCwIcon className="h-4 w-4 animate-spin text-violet-500" />
@@ -674,7 +1251,6 @@ const OrderActionModal = ({ order, isOpen, onClose, onAction, statusTypes }: Ord
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-1 focus:ring-teal-500 resize-none"
                 />
               )}
-
               <div className="flex gap-2 justify-end">
                 <button
                   onClick={() => { setShowRemarkInput(false); setRemarkError(null); }}
@@ -770,7 +1346,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
         </div>
 
         <div className="overflow-y-auto flex-1">
-
           <div className="px-5 pt-4 pb-2 flex items-center gap-2">
             <span className="text-xs font-medium text-gray-500">Status:</span>
             <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusBadgeClass(order.statusId)}`}>
@@ -831,9 +1406,7 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
                     {orderItems.map((item, idx) => (
                       <tr key={item.orderDetailId} className="hover:bg-gray-50 transition-colors">
                         <td className="px-3 py-2.5 text-xs text-gray-400">{idx + 1}</td>
-                        <td className="px-3 py-2.5 text-xs font-medium text-gray-900">
-                          {item.itemName}
-                        </td>
+                        <td className="px-3 py-2.5 text-xs font-medium text-gray-900">{item.itemName}</td>
                         <td className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700">
                           <span className="inline-flex items-center justify-center h-5 min-w-[1.25rem] rounded bg-gray-100 px-1.5 text-gray-800">
                             {item.quantity}
@@ -901,6 +1474,17 @@ const validatePhone = (value: string): string | null => {
 
 export function SalesPage() {
 
+  // ── Config flags ──────────────────────────────────────────────────────────
+  const [autoGenerateId, setAutoGenerateId] = useState(false);
+  const [isPrint, setIsPrint] = useState(false);
+
+  // ── Courier bag state ─────────────────────────────────────────────────────
+  const [showCourierBags, setShowCourierBags] = useState(false);
+  const [courierBags, setCourierBags] = useState<CourierBag[]>([]);
+  const [selectedCourierBag, setSelectedCourierBag] = useState<CourierBag | null>(null);
+  const [isLoadingCourierBags, setIsLoadingCourierBags] = useState(false);
+  const [courierBagError, setCourierBagError] = useState<string | null>(null);
+
   // ── Left Column: Customer ──
   const [phone, setPhone] = useState('');
   const [phoneTwo, setPhoneTwo] = useState('');
@@ -910,7 +1494,6 @@ export function SalesPage() {
   const [address, setAddress] = useState('');
   const [remark, setRemark] = useState('');
 
-  // ── CHANGE 1: Phone validation error states ──
   const [phoneOneError, setPhoneOneError] = useState<string | null>(null);
   const [phoneTwoError, setPhoneTwoError] = useState<string | null>(null);
 
@@ -923,6 +1506,18 @@ export function SalesPage() {
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Customer order history modal state ──
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyModalOrders, setHistoryModalOrders] = useState<DeliveryOrderResponse[]>([]);
+  const [historyModalLoading, setHistoryModalLoading] = useState(false);
+  const [currentCustomerPhone, setCurrentCustomerPhone] = useState('');
+  const [currentCustomerName, setCurrentCustomerName] = useState('');
+
+  // ── Undelivered warning modal state ──
+  const [undeliveredWarningOpen, setUndeliveredWarningOpen] = useState(false);
+  const [lastUndeliveredOrder, setLastUndeliveredOrder] = useState<DeliveryOrderResponse | null>(null);
+  const [pendingSaveAfterWarning, setPendingSaveAfterWarning] = useState(false);
+
   // ── Items & Categories ──
   const [items, setItems] = useState<Item[]>([]);
   const [subCategories, setSubCategories] = useState<SubItemCategory[]>([]);
@@ -931,6 +1526,11 @@ export function SalesPage() {
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<number | ''>('');
   const [qty, setQty] = useState(1);
+
+  // ── Stock check state ─────────────────────────────────────────────────────
+  const [isCheckingStock, setIsCheckingStock] = useState(false);
+  const [stockError, setStockError] = useState<string | null>(null);
+  const [stockDetails, setStockDetails] = useState<IngredientStatus[] | null>(null);
 
   const selectedItem = filteredItems.find((i) => i.itemId === selectedItemId) ?? null;
 
@@ -972,7 +1572,7 @@ export function SalesPage() {
   const [startDate, setStartDate] = useState<string>(getTodayStr);
   const [endDate, setEndDate] = useState<string>(getTodayStr);
 
-  // ── CHANGE 2: Payment type filter ──
+  // ── Payment type filter ──
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<string>('');
 
   // ── Modal state ──
@@ -983,7 +1583,7 @@ export function SalesPage() {
   const [baseDeliveryFee, setBaseDeliveryFee] = useState(0);
   const [addCostPerKg, setAddCostPerKg] = useState(0);
 
-  // ── CHANGE 2: Derived filtered orders by payment type ──
+  // ── Derived filtered orders by payment type ──
   const filteredOrders = paymentTypeFilter
     ? orders.filter((o) => {
         const matched = paymentTypeOptions.find(
@@ -992,6 +1592,58 @@ export function SalesPage() {
         return matched ? o.paymentTypeId === matched.paymentTypeId : true;
       })
     : orders;
+
+  // ── Fetch feature config ──────────────────────────────────────────────────
+
+  useEffect(() => {
+    const fetchFeatureConfig = async () => {
+      try {
+        const [autoIdRes, printRes] = await Promise.all([
+          fetch('http://localhost:8080/api/config/auto-generate-id'),
+          fetch('http://localhost:8080/api/config/is-print'),
+        ]);
+        if (autoIdRes.ok) {
+          const val = await autoIdRes.text();
+          setAutoGenerateId(val.trim() !== '0' && val.trim() !== '');
+        }
+        if (printRes.ok) {
+          const val = await printRes.text();
+          setIsPrint(val.trim() !== '0' && val.trim() !== '');
+        }
+      } catch (err) {
+        console.error('Failed to fetch feature config:', err);
+      }
+    };
+    fetchFeatureConfig();
+  }, []);
+
+  // ── Fetch courier bag config + bags ──────────────────────────────────────
+
+  useEffect(() => {
+    const fetchCourierBagData = async () => {
+      try {
+        const configRes = await fetch('http://localhost:8080/api/config/courier-bags/config');
+        if (!configRes.ok) return;
+        const configData = await configRes.json();
+        const isEnabled = configData?.isShowCourierBags === 1;
+        setShowCourierBags(isEnabled);
+
+        if (isEnabled) {
+          setIsLoadingCourierBags(true);
+          const bagsRes = await fetch('http://localhost:8080/api/items/courier-bags');
+          if (bagsRes.ok) {
+            const bagsData: CourierBag[] = await bagsRes.json();
+            setCourierBags(bagsData.filter(b => b.status === 1));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch courier bag config:', err);
+      } finally {
+        setIsLoadingCourierBags(false);
+      }
+    };
+    fetchCourierBagData();
+  }, []);
 
   // ── Fetch delivery config ─────────────────────────────────────────────────
 
@@ -1061,12 +1713,10 @@ export function SalesPage() {
     fetchDropdowns();
   }, []);
 
-  // ── Calculations ──
-  const subTotal = cart.reduce((sum, item) => sum + item.unitPrice * item.qty, 0);
-  const totalDiscount =
-    discountMode === 'full'
-      ? fullOrderDiscount
-      : cart.reduce((sum, item) => sum + item.discount, 0);
+  // ── Calculations ──────────────────────────────────────────────────────────
+
+  const subTotal = cart.reduce((sum, item) => sum + (discountMode === 'item' ? item.amount : item.unitPrice * item.qty), 0);
+  const totalDiscount = discountMode === 'full' ? fullOrderDiscount : 0;
 
   const weightKg = weight > 0 ? Math.max(1, Math.ceil(weight / 1000)) : 1;
   const calculatedDeliveryFee = baseDeliveryFee + (weightKg - 1) * addCostPerKg;
@@ -1074,7 +1724,7 @@ export function SalesPage() {
   const grandTotal = subTotal - totalDiscount + deliveryFee;
 
   const resolvedPaymentTypeId =
-    paymentTypeOptions.find((pt) => pt.paymentType === paymentType)?.paymentTypeId ?? 1;
+    paymentTypeOptions.find((pt) => pt.paymentType === paymentType)?.paymentTypeId ?? 1;  
 
   // ── Category change handler ───────────────────────────────────────────────
 
@@ -1092,7 +1742,7 @@ export function SalesPage() {
     }
   }, [items]);
 
-  // ── Fetch items + categories (parallel) ──────────────────────────────────
+  // ── Fetch items + categories ──────────────────────────────────────────────
 
   const fetchItems = useCallback(async () => {
     setIsLoadingItems(true);
@@ -1109,7 +1759,6 @@ export function SalesPage() {
 
       if (catsRes.ok) {
         const allCats: SubItemCategoryDTO[] = await catsRes.json();
-
         const usedCatIds = new Set(active.map((i) => i.subItemCategoryId));
         const relevantCats: SubItemCategory[] = allCats
           .filter((c) => c.status === 1 && usedCatIds.has(c.subItemCategoryId))
@@ -1174,13 +1823,7 @@ export function SalesPage() {
       const res = await fetch(url);
       if (!res.ok) return;
       const data: DeliveryOrderResponse[] = await res.json();
-      const seen = new Set<string>();
-      allOrdersRef.current = data.filter((d) => {
-        const key = String(d.customerId ?? d.phoneOne);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+      allOrdersRef.current = data;
     } catch {
       // silently ignore
     }
@@ -1188,16 +1831,65 @@ export function SalesPage() {
 
   useEffect(() => { fetchAllOrdersForSearch(); }, []);
 
+  // ── Fetch customer order history ──────────────────────────────────────────
+
+  const fetchCustomerHistory = useCallback(async (phoneNumber: string, name: string) => {
+    setCurrentCustomerPhone(phoneNumber);
+    setCurrentCustomerName(name);
+    setHistoryModalLoading(true);
+    setHistoryModalOpen(true);
+    setHistoryModalOrders([]);
+
+    try {
+      await fetchAllOrdersForSearch();
+      const customerOrders = allOrdersRef.current.filter(
+        (d) =>
+          (d.phoneOne ?? '') === phoneNumber ||
+          (d.phoneTwo ?? '') === phoneNumber ||
+          (d.customerNumber ?? '') === phoneNumber
+      );
+      setHistoryModalOrders(customerOrders);
+    } catch (err) {
+      console.error('Failed to fetch customer history:', err);
+      setHistoryModalOrders([]);
+    } finally {
+      setHistoryModalLoading(false);
+    }
+  }, [fetchAllOrdersForSearch]);
+
+  // ── Get last undelivered order ────────────────────────────────────────────
+
+  const getLastUndeliveredOrder = useCallback(async (phoneNumber: string): Promise<DeliveryOrderResponse | null> => {
+    await fetchAllOrdersForSearch();
+    const customerOrders = allOrdersRef.current.filter(
+      (d) =>
+        (d.phoneOne ?? '') === phoneNumber ||
+        (d.phoneTwo ?? '') === phoneNumber
+    );
+    if (customerOrders.length === 0) return null;
+    const sorted = [...customerOrders].sort(
+      (a, b) => new Date(b.createdDate).getTime() - new Date(a.createdDate).getTime()
+    );
+    const latest = sorted[0];
+    if (latest.statusId !== 5 && latest.statusId !== 7) return latest;
+    return null;
+  }, [fetchAllOrdersForSearch]);
+
   const filterSuggestions = useCallback((query: string): DeliveryOrderResponse[] => {
     if (query.trim().length < 3) return [];
     const lower = query.toLowerCase();
-    return allOrdersRef.current.filter(
-      (d) =>
+    const seen = new Set<string>();
+    return allOrdersRef.current.filter((d) => {
+      const key = String(d.customerId ?? d.phoneOne);
+      if (seen.has(key)) return false;
+      const matches =
         (d.phoneOne ?? '').includes(query) ||
         (d.phoneTwo ?? '').includes(query) ||
         (d.customerNumber ?? '').includes(query) ||
-        (d.customerName ?? '').toLowerCase().includes(lower)
-    );
+        (d.customerName ?? '').toLowerCase().includes(lower);
+      if (matches) { seen.add(key); return true; }
+      return false;
+    });
   }, []);
 
   const handlePhoneSearch = useCallback(async () => {
@@ -1237,12 +1929,10 @@ export function SalesPage() {
     setPhoneSuggestions([]);
     setActiveSuggestion(-1);
     setCustomerSearchError(null);
-    // Clear validation errors when a customer is selected from suggestions
     setPhoneOneError(null);
     setPhoneTwoError(null);
   };
 
-  // ── CHANGE 1: Phone One change with validation ──
   const handlePhoneChange = (value: string) => {
     setPhone(value);
     setActiveSuggestion(-1);
@@ -1315,47 +2005,80 @@ export function SalesPage() {
     setWeight(0);
     setPaidAmount(0);
     setSaveError(null);
-    // ── CHANGE 1: clear phone errors on reset ──
     setPhoneOneError(null);
     setPhoneTwoError(null);
-    if (businessProfiles.length > 0) setSelectedProfileId(businessProfiles[0].bussinessProfileId);
+    setSelectedCourierBag(null);
+    setCourierBagError(null);
+    setStockError(null);
+    setStockDetails(null);
   };
 
   // ── Cart handlers ─────────────────────────────────────────────────────────
 
-  const handleAddItem = () => {
+  // ── Stock-checked Add Item ────────────────────────────────────────────────
+  const handleAddItem = async () => {
     if (!selectedItem) return;
 
-    const itemDiscount = selectedItem.discount ?? 0;
-    const existingIndex = cart.findIndex((c) => c.itemId === selectedItem.itemId);
+    // Clear any previous stock error
+    setStockError(null);
+    setStockDetails(null);
+    setIsCheckingStock(true);
 
-    if (existingIndex !== -1) {
-      setCart((prev) =>
-        prev.map((c, i) => {
-          if (i !== existingIndex) return c;
-          const newQty = c.qty + qty;
-          const newAmount = c.unitPrice * newQty - c.discount;
-          return { ...c, qty: newQty, amount: newAmount > 0 ? newAmount : 0 };
-        })
-      );
-    } else {
-      const lineTotal = selectedItem.unitPrice * qty - itemDiscount;
-      const newItem: CartItem = {
-        id: Date.now().toString(),
-        itemId: selectedItem.itemId,
-        itemBarCode: selectedItem.itemBarCode,
-        itemWeight: selectedItem.weight,
-        name: `${selectedItem.itemName}`,
-        qty,
-        unitPrice: selectedItem.unitPrice,
-        discount: itemDiscount,
-        amount: lineTotal > 0 ? lineTotal : 0,
-        discountType: 'amount',
-      };
-      setCart((prev) => [...prev, newItem]);
+    try {
+      const res = await fetch('http://localhost:8080/api/stock-check/item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId: selectedItem.itemId, quantity: qty }),
+      });
+
+      if (!res.ok) throw new Error(`Stock check failed: ${res.status}`);
+
+      const data: StockCheckResponse = await res.json();
+
+      if (!data.available) {
+        setStockError(data.message ?? 'Insufficient stock.');
+        setStockDetails(data.ingredientStatuses ?? []);
+        return;
+      }
+
+      // ── Stock OK: proceed with cart logic ────────────────────────────────
+      const itemDiscount = selectedItem.discount ?? 0;
+      const existingIndex = cart.findIndex((c) => c.itemId === selectedItem.itemId);
+
+      if (existingIndex !== -1) {
+        setCart((prev) =>
+          prev.map((c, i) => {
+            if (i !== existingIndex) return c;
+            const newQty = c.qty + qty;
+            const newAmount = c.unitPrice * newQty - c.discount;
+            return { ...c, qty: newQty, amount: newAmount > 0 ? newAmount : 0 };
+          })
+        );
+      } else {
+        const lineTotal = selectedItem.unitPrice * qty - itemDiscount;
+        const newItem: CartItem = {
+          id: Date.now().toString(),
+          itemId: selectedItem.itemId,
+          itemBarCode: selectedItem.itemBarCode,
+          itemWeight: selectedItem.weight,
+          name: selectedItem.itemName,
+          qty,
+          unitPrice: selectedItem.unitPrice,
+          discount: itemDiscount,
+          amount: lineTotal > 0 ? lineTotal : 0,
+          discountType: 'amount',
+        };
+        setCart((prev) => [...prev, newItem]);
+      }
+
+      setWeight((prev) => prev + selectedItem.weight * qty);
+
+    } catch (err: any) {
+      setStockError(err.message ?? 'Stock check failed. Please try again.');
+      setStockDetails(null);
+    } finally {
+      setIsCheckingStock(false);
     }
-
-    setWeight((prev) => prev + selectedItem.weight * qty);
   };
 
   const handleItemDiscountTypeChange = (id: string, type: 'amount' | 'pct') => {
@@ -1424,33 +2147,15 @@ export function SalesPage() {
       paidAmount,
       paymentTypeId: resolvedPaymentTypeId,
       bussinessProfileId: selectedProfileId,
+      courierBagId: selectedCourierBag?.itemId ?? null,       // ← always included, null if none
+      courierBagName: selectedCourierBag?.itemName ?? null,   // ← always included, null if none
       items: apiItems,
     };
   };
 
-  // ── Save / Update order ───────────────────────────────────────────────────
+  // ── Core save logic ───────────────────────────────────────────────────────
 
-  const handleSaveOrder = async () => {
-    if (cart.length === 0) { alert('Cart is empty!'); return; }
-
-    // ── CHANGE 1: Phone validation before save ──
-    if (!phone.trim()) {
-      setPhoneOneError('Phone One is required.');
-      return;
-    }
-    const p1err = validatePhone(phone);
-    if (p1err) {
-      setPhoneOneError(p1err);
-      return;
-    }
-    if (phoneTwo.trim()) {
-      const p2err = validatePhone(phoneTwo);
-      if (p2err) {
-        setPhoneTwoError(p2err);
-        return;
-      }
-    }
-
+  const executeSaveOrder = async () => {
     setSaveError(null);
     setIsSaving(true);
 
@@ -1463,9 +2168,7 @@ export function SalesPage() {
 
       const payload = {
         ...buildPayload(),
-        ...(isUpdate
-          ? { deliveryId: editingDeliveryId, orderCode }
-          : {}),
+        ...(isUpdate ? { deliveryId: editingDeliveryId, orderCode } : {}),
       };
 
       const res = await fetch(url, {
@@ -1479,13 +2182,67 @@ export function SalesPage() {
         throw new Error(errText || `Server error: ${res.status}`);
       }
 
+      allOrdersRef.current = [];
+      fetchAllOrdersForSearch();
+
       await fetchOrders();
       resetForm();
     } catch (err: any) {
       setSaveError(err.message ?? 'Failed to save order');
     } finally {
       setIsSaving(false);
+      setPendingSaveAfterWarning(false);
     }
+  };
+
+  // ── Save / Update order with undelivered check ────────────────────────────
+
+  const handleSaveOrder = async () => {
+    if (cart.length === 0) { alert('Cart is empty!'); return; }
+
+    if (showCourierBags && !selectedCourierBag) {
+      setCourierBagError('Please select a courier bag to continue.');
+      return;
+    }
+
+    if (!phone.trim()) {
+      setPhoneOneError('Phone One is required.');
+      return;
+    }
+    const p1err = validatePhone(phone);
+    if (p1err) { setPhoneOneError(p1err); return; }
+    if (phoneTwo.trim()) {
+      const p2err = validatePhone(phoneTwo);
+      if (p2err) { setPhoneTwoError(p2err); return; }
+    }
+
+    if (!editingDeliveryId) {
+      const undelivered = await getLastUndeliveredOrder(phone.trim());
+      if (undelivered) {
+        setLastUndeliveredOrder(undelivered);
+        setUndeliveredWarningOpen(true);
+        setPendingSaveAfterWarning(true);
+        return;
+      }
+    }
+
+    await executeSaveOrder();
+  };
+
+  // ── Warning modal handlers ────────────────────────────────────────────────
+
+  const handleWarningConfirm = async () => {
+    setUndeliveredWarningOpen(false);
+    setLastUndeliveredOrder(null);
+    if (pendingSaveAfterWarning) {
+      await executeSaveOrder();
+    }
+  };
+
+  const handleWarningCancel = () => {
+    setUndeliveredWarningOpen(false);
+    setLastUndeliveredOrder(null);
+    setPendingSaveAfterWarning(false);
   };
 
   // ── Edit order ────────────────────────────────────────────────────────────
@@ -1502,6 +2259,8 @@ export function SalesPage() {
     setSaveError(null);
     setPhoneOneError(null);
     setPhoneTwoError(null);
+    setStockError(null);
+    setStockDetails(null);
 
     try {
       const detailRes = await fetch(
@@ -1619,7 +2378,8 @@ export function SalesPage() {
 
   const [selectedOrder, setSelectedOrder] = useState(null);
 
-  // ── CHANGE 4: Table columns with row hover ──
+  // ── Table columns ─────────────────────────────────────────────────────────
+
   const orderColumns: Column<Order>[] = [
     { header: 'Order Code', accessor: 'orderCode', className: 'font-medium text-teal-600' },
     { header: 'Customer Name', accessor: 'customerName' },
@@ -1671,12 +2431,30 @@ export function SalesPage() {
         onClose={() => setActionModalOrder(null)}
         onAction={handleOrderAction}
         statusTypes={statusTypes}
+        autoGenerateId={autoGenerateId}
+        isPrint={isPrint}
       />
       <OrderViewModal
         order={viewModalOrder}
         isOpen={!!viewModalOrder}
         onClose={() => setViewModalOrder(null)}
         statusTypes={statusTypes}
+      />
+      <CustomerOrderHistoryModal
+        isOpen={historyModalOpen}
+        onClose={() => setHistoryModalOpen(false)}
+        customerName={currentCustomerName}
+        phoneOne={currentCustomerPhone}
+        orders={historyModalOrders}
+        isLoading={historyModalLoading}
+        statusTypes={statusTypes}
+      />
+      <UndeliveredWarningModal
+        isOpen={undeliveredWarningOpen}
+        lastOrder={lastUndeliveredOrder}
+        statusTypes={statusTypes}
+        onConfirm={handleWarningConfirm}
+        onCancel={handleWarningCancel}
       />
 
       <div className="flex h-[calc(100vh-4rem)] flex-col lg:flex-row gap-4 p-3 overflow-hidden bg-gray-50">
@@ -1686,7 +2464,6 @@ export function SalesPage() {
         ════════════════════════════════════════════════ */}
         <div className="flex w-full flex-col gap-4 lg:w-[30%] overflow-y-auto custom-scrollbar">
 
-          {/* Edit Mode Banner */}
           {editingDeliveryId !== null && (
             <div className="flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5">
               <div className="flex items-center gap-2">
@@ -1705,7 +2482,6 @@ export function SalesPage() {
             </div>
           )}
 
-          {/* Save Error Banner */}
           {saveError && (
             <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5">
               <AlertCircleIcon className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
@@ -1726,7 +2502,6 @@ export function SalesPage() {
             </h3>
             <div className="space-y-2">
 
-              {/* Phone One with live suggestions + validation */}
               <div className="flex gap-3 items-start">
                 <label className="w-36 shrink-0 text-xs font-medium text-gray-600 leading-9">
                   Phone One <span className="text-red-500">*</span>
@@ -1759,7 +2534,6 @@ export function SalesPage() {
                     </button>
                   </div>
 
-                  {/* CHANGE 1: Phone one error message */}
                   {phoneOneError && (
                     <p className="text-xs text-red-500 flex items-center gap-1">
                       <AlertCircleIcon className="h-3 w-3 shrink-0" />
@@ -1801,7 +2575,6 @@ export function SalesPage() {
                 </div>
               </div>
 
-              {/* CHANGE 1: Phone Two with validation */}
               <div className="flex gap-3 items-start">
                 <label className="w-36 shrink-0 text-xs font-medium text-gray-600 leading-9">Phone Two</label>
                 <div className="flex-1 min-w-0">
@@ -1851,7 +2624,20 @@ export function SalesPage() {
             </div>
 
             <div className="mt-3 flex justify-end gap-2">
-              <button className="rounded-md bg-pink-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-pink-600">Check</button>
+              <button
+                onClick={() => {
+                  if (!phone.trim()) {
+                    setCustomerSearchError('Enter a phone number first.');
+                    return;
+                  }
+                  fetchCustomerHistory(phone.trim(), customerName);
+                }}
+                className="flex items-center gap-1.5 rounded-md bg-indigo-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-600 transition-colors"
+                title="View order history for this phone number"
+              >
+                <HistoryIcon className="h-3.5 w-3.5" />
+                Check
+              </button>
               <button className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700">Edit</button>
               <button
                 onClick={resetForm}
@@ -1866,7 +2652,6 @@ export function SalesPage() {
           <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="space-y-2 mb-3">
 
-              {/* Business Profile Selector */}
               <FieldRow label="Business Profile">
                 {isLoadingProfiles ? (
                   <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
@@ -1892,7 +2677,30 @@ export function SalesPage() {
                 )}
               </FieldRow>
 
-              {/* Category Selector */}
+              {/* ── Courier Bag Combobox ── */}
+              {showCourierBags && (
+                <div className="flex gap-3 items-start">
+                  <label className="w-36 shrink-0 text-xs font-medium text-gray-600 leading-9 flex items-center gap-1">
+                    <ShoppingBagIcon className="h-3 w-3 text-teal-500" />
+                    Courier Bag
+                  </label>
+                  <div className="flex-1 min-w-0">
+                    <CourierBagCombobox
+                      bags={courierBags}
+                      selectedId={selectedCourierBag?.itemId ?? null}
+                      onChange={(bag) => { setSelectedCourierBag(bag); setCourierBagError(null); }}
+                      isLoading={isLoadingCourierBags}
+                    />
+                    {courierBagError && (
+                      <p className="mt-1.5 flex items-center gap-1 text-xs text-red-500">
+                        <AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />
+                        {courierBagError}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <FieldRow label="Category">
                 {isLoadingItems ? (
                   <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
@@ -1918,7 +2726,6 @@ export function SalesPage() {
                 )}
               </FieldRow>
 
-              {/* Item Selector */}
               <FieldRow label="Select Item">
                 {isLoadingItems ? (
                   <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
@@ -1928,7 +2735,12 @@ export function SalesPage() {
                 ) : (
                   <select
                     value={selectedItemId}
-                    onChange={(e) => setSelectedItemId(Number(e.target.value))}
+                    onChange={(e) => {
+                      setSelectedItemId(Number(e.target.value));
+                      // Clear stock error when item changes
+                      setStockError(null);
+                      setStockDetails(null);
+                    }}
                     disabled={filteredItems.length === 0}
                     className={`${selectCls} ${filteredItems.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
@@ -1950,28 +2762,117 @@ export function SalesPage() {
                   type="number"
                   min="1"
                   value={qty}
-                  onChange={(e) => setQty(parseInt(e.target.value) || 1)}
+                  onChange={(e) => {
+                    setQty(parseInt(e.target.value) || 1);
+                    // Clear stock error when qty changes
+                    setStockError(null);
+                    setStockDetails(null);
+                  }}
                   className={inputCls}
                 />
               </FieldRow>
             </div>
 
+            {/* ── Action buttons row ── */}
             <div className="flex justify-end gap-2 border-b border-gray-100 pb-3">
               <button
                 onClick={() => { setCart([]); setWeight(0); }}
                 className="flex items-center rounded-md bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600"
-                title="Clear all cart items and reset weight"
               >
                 <Trash2Icon className="mr-1.5 h-3.5 w-3.5" /> Remove All
               </button>
               <button
                 onClick={handleAddItem}
-                disabled={!selectedItem}
-                className="flex w-32 items-center justify-center rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!selectedItem || isCheckingStock}
+                className="flex w-36 items-center justify-center rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <PlusIcon className="mr-1.5 h-3.5 w-3.5" /> Add Item
+                {isCheckingStock ? (
+                  <>
+                    <RefreshCwIcon className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Checking…
+                  </>
+                ) : (
+                  <>
+                    <PlusIcon className="mr-1.5 h-3.5 w-3.5" />
+                    Add Item
+                  </>
+                )}
               </button>
             </div>
+
+            {/* ── Stock check feedback ── */}
+            {(isCheckingStock || stockError) && (
+              <div className="mt-3">
+                {isCheckingStock ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-teal-100 bg-teal-50 px-3 py-2.5 text-xs text-teal-700">
+                    <RefreshCwIcon className="h-3.5 w-3.5 animate-spin shrink-0" />
+                    <span>Checking stock availability…</span>
+                  </div>
+                ) : stockError ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50 overflow-hidden">
+                    {/* Error header */}
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AlertCircleIcon className="h-4 w-4 shrink-0 text-red-500" />
+                        <span className="text-xs font-semibold text-red-700 truncate">{stockError}</span>
+                      </div>
+                      <button
+                        onClick={() => { setStockError(null); setStockDetails(null); }}
+                        className="ml-2 shrink-0 text-red-400 hover:text-red-600 transition-colors"
+                        title="Dismiss"
+                      >
+                        <XIcon className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Ingredient breakdown table */}
+                    {stockDetails && stockDetails.length > 0 && (
+                      <div className="border-t border-red-100 px-3 pb-3 pt-2">
+                        <p className="text-[10px] uppercase tracking-wider text-red-400 font-semibold mb-2">
+                          Ingredient Breakdown
+                        </p>
+                        <div className="space-y-1.5">
+                          {stockDetails.map((s) => (
+                            <div
+                              key={s.subItemId}
+                              className={`flex items-center justify-between rounded-md px-2.5 py-1.5 text-xs ${
+                                s.sufficient
+                                  ? 'bg-green-50 border border-green-100'
+                                  : 'bg-red-100 border border-red-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.sufficient ? 'bg-green-500' : 'bg-red-500'}`} />
+                                <span className={`font-medium truncate ${s.sufficient ? 'text-green-800' : 'text-red-800'}`}>
+                                  {s.subItemName}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 ml-2">
+                                <span className={`font-mono text-[11px] ${s.sufficient ? 'text-green-700' : 'text-red-700'}`}>
+                                  <span className={`font-bold ${s.sufficient ? 'text-green-800' : 'text-red-600'}`}>
+                                    {s.availableQty}
+                                  </span>
+                                  <span className="text-gray-400 mx-0.5">/</span>
+                                  {s.requiredQty}
+                                </span>
+                                {s.sufficient ? (
+                                  <CheckCircleIcon className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                ) : (
+                                  <XCircleIcon className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[10px] text-red-400">
+                          Available / Required quantity shown per ingredient
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* Cart Table */}
             <div className="mt-3">
@@ -2074,22 +2975,15 @@ export function SalesPage() {
           {/* ── Order Details & Summary Section ── */}
           <div className="grid grid-cols-1 gap-4">
 
-            {/* Order Details */}
             <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-2">
 
               <FieldRow label="Order Type">
-                <select
-                  value={orderType}
-                  onChange={(e) => setOrderType(e.target.value)}
-                  className={selectCls}
-                >
+                <select value={orderType} onChange={(e) => setOrderType(e.target.value)} className={selectCls}>
                   {orderTypes.length === 0 ? (
                     <option value="">Loading…</option>
                   ) : (
                     orderTypes.map((ot) => (
-                      <option key={ot.id} value={ot.type}>
-                        {ot.type}
-                      </option>
+                      <option key={ot.id} value={ot.type}>{ot.type}</option>
                     ))
                   )}
                 </select>
@@ -2105,18 +2999,12 @@ export function SalesPage() {
               </FieldRow>
 
               <FieldRow label="Payment Type">
-                <select
-                  value={paymentType}
-                  onChange={(e) => setPaymentType(e.target.value)}
-                  className={selectCls}
-                >
+                <select value={paymentType} onChange={(e) => setPaymentType(e.target.value)} className={selectCls}>
                   {paymentTypeOptions.length === 0 ? (
                     <option value="">Loading…</option>
                   ) : (
                     paymentTypeOptions.map((pt) => (
-                      <option key={pt.paymentTypeId} value={pt.paymentType}>
-                        {pt.paymentType}
-                      </option>
+                      <option key={pt.paymentTypeId} value={pt.paymentType}>{pt.paymentType}</option>
                     ))
                   )}
                 </select>
@@ -2192,9 +3080,7 @@ export function SalesPage() {
                   <span className="font-medium text-green-700">
                     Delivery Fee
                     {!isFreeShip && (
-                      <span className="ml-1 text-xs text-gray-400 font-normal">
-                        ({weightKg}kg)
-                      </span>
+                      <span className="ml-1 text-xs text-gray-400 font-normal">({weightKg}kg)</span>
                     )}
                     :
                   </span>
@@ -2205,6 +3091,33 @@ export function SalesPage() {
                     {deliveryFee.toFixed(2)}
                   </span>
                 </div>
+
+                {/* ── Courier Bag summary line ── */}
+                {showCourierBags && (
+                  <div className="flex justify-between items-center text-sm border-t border-teal-200 pt-2">
+                    <span className="font-medium text-teal-700 flex items-center gap-1.5">
+                      <ShoppingBagIcon className="h-3.5 w-3.5" />
+                      Courier Bag :
+                    </span>
+                    {selectedCourierBag ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-teal-800">
+                          {selectedCourierBag.itemName}
+                        </span>
+                        <button
+                          onClick={() => setSelectedCourierBag(null)}
+                          className="text-teal-400 hover:text-teal-600 transition-colors"
+                          title="Remove bag"
+                        >
+                          <XIcon className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400 italic">None selected</span>
+                    )}
+                  </div>
+                )}
+
                 <div className="pt-3 border-t border-teal-200 flex justify-between items-center text-base">
                   <span className="font-bold text-red-600">Grand Total :</span>
                   <span className="font-bold text-red-600">{grandTotal.toFixed(2)}</span>
@@ -2253,7 +3166,6 @@ export function SalesPage() {
             </div>
           )}
 
-          {/* CHANGE 2: Payment type filter wired up + CHANGE 4: row hover via rowClassName */}
           <FilterBar
             filters={[
               {
@@ -2296,11 +3208,9 @@ export function SalesPage() {
             </div>
           )}
 
-
           {(!isLoading || orders.length > 0) && (
             <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-gray-200 bg-white">
               <div className="min-w-max">
-                {/* CHANGE 4: Pass rowClassName for hover effect */}
                 <DataTable
                   columns={orderColumns}
                   data={filteredOrders}

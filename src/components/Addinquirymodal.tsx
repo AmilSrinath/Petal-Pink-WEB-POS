@@ -56,8 +56,8 @@ interface Props {
 const steps = ['Tracking', 'Company', 'Branch', 'Reason', 'Confirm'];
 
 function StepDot({ index, current, label }: { index: number; current: number; label: string }) {
-  const done    = index < current;
-  const active  = index === current;
+  const done   = index < current;
+  const active = index === current;
   return (
     <div className="flex flex-col items-center gap-1">
       <div
@@ -95,14 +95,16 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
   const trackingRef = useRef<HTMLInputElement>(null);
 
   // Step 1 – company
-  const [companies,       setCompanies]       = useState<Company[]>([]);
-  const [companiesLoading,setCompaniesLoading]= useState(false);
-  const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
+  const [companies,        setCompanies]        = useState<Company[]>([]);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
+  const [selectedCompany,  setSelectedCompany]  = useState<Company | null>(null);
 
   // Step 2 – branch
-  const [branches,       setBranches]       = useState<Branch[]>([]);
-  const [branchesLoading,setBranchesLoading]= useState(false);
-  const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
+  const [branches,        setBranches]        = useState<Branch[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [selectedBranch,  setSelectedBranch]  = useState<Branch | null>(null);
+  const [branchSearch,    setBranchSearch]    = useState('');
+  const branchSearchRef = useRef<HTMLInputElement>(null);
 
   // Step 3 – reason
   const [reasons,        setReasons]        = useState<Reason[]>([]);
@@ -111,11 +113,19 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
   const [remark,         setRemark]         = useState('');
 
   // Step 4 – save
-  const [saving,     setSaving]     = useState(false);
-  const [saveError,  setSaveError]  = useState<string | null>(null);
+  const [saving,    setSaving]    = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Auto-focus tracking input
   useEffect(() => { trackingRef.current?.focus(); }, []);
+
+  // Auto-focus branch search when entering step 2
+  useEffect(() => {
+    if (step === 2) {
+      setBranchSearch('');
+      setTimeout(() => branchSearchRef.current?.focus(), 100);
+    }
+  }, [step]);
 
   // Load companies when reaching step 1
   useEffect(() => {
@@ -133,6 +143,7 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
     if (!selectedCompany) return;
     setBranches([]);
     setSelectedBranch(null);
+    setBranchSearch('');
     setBranchesLoading(true);
     fetch(`http://localhost:8080/api/courier-branches/by-company/${selectedCompany.companyId}`)
       .then(r => r.json())
@@ -151,6 +162,12 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
       .catch(() => {})
       .finally(() => setReasonsLoading(false));
   }, [step]);
+
+  // ── Derived: filtered branches ─────────────────────────────────────────────
+  const filteredBranches = branches.filter(b =>
+    b.branchName.toLowerCase().includes(branchSearch.toLowerCase()) ||
+    b.branchContact.toLowerCase().includes(branchSearch.toLowerCase())
+  );
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -178,18 +195,18 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
     setSaving(true);
     setSaveError(null);
     const payload: InquiryPayload = {
-      wayBill:       order.orderCode,
-      customerId:    order.customerId,
-      customerName:  order.customerName,
+      wayBill:        order.orderCode,
+      customerId:     order.customerId,
+      customerName:   order.customerName,
       customerPhone1: order.phoneOne,
       customerPhone2: order.phoneTwo ?? '',
-      company:       selectedCompany.companyName,
-      branch:        selectedBranch.branchName,
-      branchContact: selectedBranch.branchContact,
-      reason:        selectedReason.reson,
+      company:        selectedCompany.companyName,
+      branch:         selectedBranch.branchName,
+      branchContact:  selectedBranch.branchContact,
+      reason:         selectedReason.reson,
       remark,
-      status:  1,
-      userId:  1,
+      status:   1,
+      userId:   1,
       statusId: 1,
     };
     try {
@@ -261,12 +278,12 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
             <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"/>
             <span className="text-xs font-bold text-teal-700 uppercase tracking-wide">Order Found</span>
           </div>
-          <InfoRow label="Tracking"      value={order.orderCode} />
-          <InfoRow label="Customer"      value={order.customerName} />
-          <InfoRow label="Customer #"    value={order.customerNumber} />
-          <InfoRow label="Phone 1"       value={order.phoneOne} />
-          <InfoRow label="Phone 2"       value={order.phoneTwo} />
-          <InfoRow label="Address"       value={order.address} />
+          <InfoRow label="Tracking"   value={order.orderCode} />
+          <InfoRow label="Customer"   value={order.customerName} />
+          <InfoRow label="Customer #" value={order.customerNumber} />
+          <InfoRow label="Phone 1"    value={order.phoneOne} />
+          <InfoRow label="Phone 2"    value={order.phoneTwo} />
+          <InfoRow label="Address"    value={order.address} />
         </div>
       )}
 
@@ -330,6 +347,35 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
       <p className="text-xs text-gray-500">
         Select branch for <span className="font-semibold text-gray-700">{selectedCompany?.companyName}</span>.
       </p>
+
+      {/* ── Branch search input ── */}
+      <div className="relative">
+        <svg
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+        </svg>
+        <input
+          ref={branchSearchRef}
+          value={branchSearch}
+          onChange={e => setBranchSearch(e.target.value)}
+          placeholder="Search branch name or contact…"
+          className="w-full rounded-xl border border-gray-200 pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 transition"
+        />
+        {branchSearch && (
+          <button
+            onClick={() => { setBranchSearch(''); branchSearchRef.current?.focus(); }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+            aria-label="Clear search"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+
       {branchesLoading ? (
         <div className="flex items-center justify-center py-10 text-gray-400 text-sm gap-2">
           <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -338,25 +384,57 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
           </svg>
           Loading branches…
         </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
-          {branches.map(b => (
+      ) : filteredBranches.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-10 text-gray-400 gap-2">
+          <svg className="w-8 h-8 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+          </svg>
+          <p className="text-sm">
+            {branches.length === 0 ? 'No branches available.' : 'No branches match your search.'}
+          </p>
+          {branchSearch && (
             <button
-              key={b.branchId}
-              onClick={() => setSelectedBranch(b)}
-              className={`
-                text-left rounded-xl border-2 px-3 py-2.5 transition-all
-                ${selectedBranch?.branchId === b.branchId
-                  ? 'border-teal-500 bg-teal-50'
-                  : 'border-gray-200 hover:border-teal-200 hover:bg-gray-50'}
-              `}
+              onClick={() => setBranchSearch('')}
+              className="text-xs text-teal-600 hover:underline"
             >
-              <p className="text-xs font-semibold text-gray-800">{b.branchName}</p>
-              <p className="text-[10px] text-gray-400 mt-0.5">{b.branchContact}</p>
+              Clear search
             </button>
-          ))}
+          )}
         </div>
+      ) : (
+        <>
+          {/* Result count badge */}
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-[11px] text-gray-400">
+              {filteredBranches.length} of {branches.length} branch{branches.length !== 1 ? 'es' : ''}
+            </span>
+            {selectedBranch && (
+              <span className="text-[11px] text-teal-600 font-semibold">
+                ✓ {selectedBranch.branchName}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+            {filteredBranches.map(b => (
+              <button
+                key={b.branchId}
+                onClick={() => setSelectedBranch(b)}
+                className={`
+                  text-left rounded-xl border-2 px-3 py-2.5 transition-all
+                  ${selectedBranch?.branchId === b.branchId
+                    ? 'border-teal-500 bg-teal-50'
+                    : 'border-gray-200 hover:border-teal-200 hover:bg-gray-50'}
+                `}
+              >
+                <p className="text-xs font-semibold text-gray-800 leading-snug">{b.branchName}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{b.branchContact}</p>
+              </button>
+            ))}
+          </div>
+        </>
       )}
+
       <div className="flex gap-2">
         <button onClick={() => setStep(1)} className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition">
           ← Back
@@ -436,16 +514,16 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
 
       <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-1">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Order</p>
-        <InfoRow label="Tracking"    value={order?.orderCode} />
-        <InfoRow label="Customer"    value={order?.customerName} />
-        <InfoRow label="Phone 1"     value={order?.phoneOne} />
-        <InfoRow label="Phone 2"     value={order?.phoneTwo} />
+        <InfoRow label="Tracking" value={order?.orderCode} />
+        <InfoRow label="Customer" value={order?.customerName} />
+        <InfoRow label="Phone 1"  value={order?.phoneOne} />
+        <InfoRow label="Phone 2"  value={order?.phoneTwo} />
       </div>
 
       <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-1">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Courier</p>
-        <InfoRow label="Company"       value={selectedCompany?.companyName} />
-        <InfoRow label="Branch"        value={selectedBranch?.branchName} />
+        <InfoRow label="Company"        value={selectedCompany?.companyName} />
+        <InfoRow label="Branch"         value={selectedBranch?.branchName} />
         <InfoRow label="Branch Contact" value={selectedBranch?.branchContact} />
       </div>
 

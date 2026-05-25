@@ -1,95 +1,101 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DataTable, Column } from '../../components/DataTable';
-import { PlusIcon, EditIcon, TrashIcon, PhoneIcon, MailIcon } from 'lucide-react';
+import { PlusIcon, EditIcon, TrashIcon, PhoneIcon, MailIcon, XIcon } from 'lucide-react';
+
+const API = 'http://localhost:8080/api/suppliers';
 
 interface Supplier {
-  id: string;
-  name: string;
-  contactPerson: string;
+  supplierId?: number;
+  salesmanName: string;
+  companyName: string;
+  brandName: string;
+  telephone: string;
   phone: string;
-  email: string;
-  address: string;
-  city: string;
-  status: 'Active' | 'Inactive';
-  paymentTerms: string;
+  addree: string;
+  gmail: string;
+  status: number; // 1 = Active, 0 = Inactive
 }
 
-const mockSuppliers: Supplier[] = [
-  { id: '1', name: 'Fresh Supplies Ltd', contactPerson: 'John Smith', phone: '9876543210', email: 'john@freshsupplies.com', address: '123 Supply Street', city: 'Mumbai', status: 'Active', paymentTerms: 'Net 30' },
-  { id: '2', name: 'Quick Distributors', contactPerson: 'Sarah Johnson', phone: '9876543211', email: 'sarah@quickdist.com', address: '456 Distribution Ave', city: 'Delhi', status: 'Active', paymentTerms: 'COD' },
-  { id: '3', name: 'Premium Foods Inc', contactPerson: 'Mike Wilson', phone: '9876543212', email: 'mike@premiumfoods.com', address: '789 Quality Road', city: 'Bangalore', status: 'Active', paymentTerms: 'Net 15' },
-  { id: '4', name: 'Quality Imports', contactPerson: 'Lisa Brown', phone: '9876543213', email: 'lisa@qualityimports.com', address: '101 Import Lane', city: 'Chennai', status: 'Inactive', paymentTerms: 'Net 45' },
-];
+const emptyForm: Supplier = {
+  salesmanName: '', companyName: '', brandName: '',
+  telephone: '', phone: '', addree: '', gmail: '', status: 1,
+};
 
 export function SupplierManagementPage() {
-  const [suppliers, setSuppliers] = useState(mockSuppliers);
-  const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    contactPerson: '',
-    phone: '',
-    email: '',
-    address: '',
-    city: '',
-    status: 'Active',
-    paymentTerms: 'Net 30',
-  });
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [showModal, setShowModal] = useState(false);
+  const [formData, setFormData] = useState<Supplier>(emptyForm);
+  const [isEditing, setIsEditing] = useState(false);
+
+  useEffect(() => { fetchSuppliers(); }, []);
+
+  const fetchSuppliers = async () => {
+    const res = await fetch(API);
+    const data = await res.json();
+    setSuppliers(data);
+  };
+
+  const openAddModal = () => {
+    setFormData(emptyForm);
+    setIsEditing(false);
+    setShowModal(true);
+  };
+
+  const openEditModal = (supplier: Supplier) => {
+    setFormData(supplier);
+    setIsEditing(true);
+    setShowModal(true);
+  };
+
+  const closeModal = () => setShowModal(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => ({ ...prev, [name]: name === 'status' ? Number(value) : value }));
   };
 
-  const handleAddSupplier = () => {
-    if (formData.name.trim()) {
-      const newSupplier: Supplier = {
-        id: String(suppliers.length + 1),
-        ...formData,
-        status: formData.status as 'Active' | 'Inactive',
-      };
-      setSuppliers([...suppliers, newSupplier]);
-      setFormData({
-        name: '',
-        contactPerson: '',
-        phone: '',
-        email: '',
-        address: '',
-        city: '',
-        status: 'Active',
-        paymentTerms: 'Net 30',
-      });
-      setShowForm(false);
-    }
+  const handleSave = async () => {
+    if (!formData.companyName.trim()) return;
+    const method = isEditing ? 'PUT' : 'POST';
+    await fetch(API, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData),
+    });
+    closeModal();
+    fetchSuppliers();
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Delete this supplier?')) return;
+    await fetch(`${API}/${id}`, { method: 'DELETE' });
+    fetchSuppliers();
   };
 
   const columns: Column<Supplier>[] = [
-    { header: 'Supplier Name', accessor: 'name' },
-    { header: 'Contact Person', accessor: 'contactPerson' },
+    { header: 'Company', accessor: 'companyName' },
+    { header: 'Brand', accessor: 'brandName' },
+    { header: 'Salesman', accessor: 'salesmanName' },
     { header: 'Contact', accessor: (row) => (
       <div className="flex flex-col gap-1 text-xs">
-        <div className="flex items-center gap-1">
-          <PhoneIcon className="h-3 w-3" />
-          {row.phone}
-        </div>
-        <div className="flex items-center gap-1">
-          <MailIcon className="h-3 w-3" />
-          {row.email}
-        </div>
+        {row.phone && <div className="flex items-center gap-1"><PhoneIcon className="h-3 w-3" />{row.phone}</div>}
+        {row.gmail && <div className="flex items-center gap-1"><MailIcon className="h-3 w-3" />{row.gmail}</div>}
       </div>
     )},
-    { header: 'City', accessor: 'city' },
-    { header: 'Payment Terms', accessor: 'paymentTerms' },
+    { header: 'Address', accessor: 'addree' },
     { header: 'Status', accessor: (row) => (
       <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-        row.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-      }`}>
-        {row.status}
-      </span>
+        row.status === 1 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+      }`}>{row.status === 1 ? 'Active' : 'Inactive'}</span>
     )},
-    { header: 'Actions', accessor: () => (
+    { header: 'Actions', accessor: (row) => (
       <div className="flex gap-2">
-        <button className="text-blue-600 hover:text-blue-800"><EditIcon className="h-4 w-4" /></button>
-        <button className="text-red-600 hover:text-red-800"><TrashIcon className="h-4 w-4" /></button>
+        <button onClick={() => openEditModal(row)} className="text-blue-600 hover:text-blue-800">
+          <EditIcon className="h-4 w-4" />
+        </button>
+        <button onClick={() => handleDelete(row.supplierId!)} className="text-red-600 hover:text-red-800">
+          <TrashIcon className="h-4 w-4" />
+        </button>
       </div>
     )},
   ];
@@ -99,131 +105,77 @@ export function SupplierManagementPage() {
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-gray-900">Supplier Management</h2>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-700"
-          >
-            <PlusIcon className="h-4 w-4" />
-            Add Supplier
+          <button onClick={openAddModal}
+            className="flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-700">
+            <PlusIcon className="h-4 w-4" /> Add Supplier
           </button>
         </div>
 
-        {showForm && (
-          <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-            <h3 className="mb-4 text-lg font-semibold text-gray-900">Add New Supplier</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Supplier Name</label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                  placeholder="Enter supplier name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Contact Person</label>
-                <input
-                  type="text"
-                  name="contactPerson"
-                  value={formData.contactPerson}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                  placeholder="Contact person name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Phone</label>
-                <input
-                  type="tel"
-                  name="phone"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                  placeholder="Phone number"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Email</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                  placeholder="Email address"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Address</label>
-                <input
-                  type="text"
-                  name="address"
-                  value={formData.address}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                  placeholder="Street address"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">City</label>
-                <input
-                  type="text"
-                  name="city"
-                  value={formData.city}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                  placeholder="City"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Payment Terms</label>
-                <select
-                  name="paymentTerms"
-                  value={formData.paymentTerms}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                >
-                  <option>COD</option>
-                  <option>Net 15</option>
-                  <option>Net 30</option>
-                  <option>Net 45</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Status</label>
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                >
-                  <option>Active</option>
-                  <option>Inactive</option>
-                </select>
+        <DataTable columns={columns} data={suppliers} />
+      </div>
+
+      {/* Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={(e) => e.target === e.currentTarget && closeModal()}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-bold text-gray-900">
+                {isEditing ? 'Edit Supplier' : 'Add New Supplier'}
+              </h3>
+              <button onClick={closeModal} className="text-gray-400 hover:text-gray-600">
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[
+                  { label: 'Company Name *', name: 'companyName', placeholder: 'e.g. Fresh Supplies Ltd' },
+                  { label: 'Brand Name', name: 'brandName', placeholder: 'Brand name' },
+                  { label: 'Salesman Name', name: 'salesmanName', placeholder: 'Contact person' },
+                  { label: 'Gmail', name: 'gmail', type: 'email', placeholder: 'email@example.com' },
+                  { label: 'Phone', name: 'phone', type: 'tel', placeholder: 'Mobile number' },
+                  { label: 'Telephone', name: 'telephone', type: 'tel', placeholder: 'Office number' },
+                ].map(f => (
+                  <div key={f.name}>
+                    <label className="block text-sm font-medium text-gray-700">{f.label}</label>
+                    <input type={f.type || 'text'} name={f.name}
+                      value={(formData as any)[f.name]}
+                      onChange={handleChange} placeholder={f.placeholder}
+                      className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none" />
+                  </div>
+                ))}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">Address</label>
+                  <input type="text" name="addree" value={formData.addree} onChange={handleChange}
+                    placeholder="Street address"
+                    className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <select name="status" value={formData.status} onChange={handleChange}
+                    className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none">
+                    <option value={1}>Active</option>
+                    <option value={0}>Inactive</option>
+                  </select>
+                </div>
               </div>
             </div>
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={handleAddSupplier}
-                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
-              >
-                Add Supplier
-              </button>
-              <button
-                onClick={() => setShowForm(false)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
+
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">
+              <button onClick={closeModal}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
                 Cancel
+              </button>
+              <button onClick={handleSave}
+                className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-700">
+                {isEditing ? 'Update Supplier' : 'Save Supplier'}
               </button>
             </div>
           </div>
-        )}
-
-        <DataTable columns={columns} data={suppliers} />
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -23,11 +23,11 @@ import { NewItemPage } from './pages/inventory/NewItemPage';
 import { ItemListPage } from './pages/inventory/ItemListPage';
 import { PurchaseOrderPage } from './pages/inventory/PurchaseOrderPage';
 import { PurchaseOrderListPage } from './pages/inventory/PurchaseOrderListPage';
-import { GoodReceiveNotePage } from './pages/inventory/GoodReceiveNotePage';
+// import { GoodReceiveNotePage } from './pages/inventory/GoodReceiveNotePage';
 import { GRNListPage } from './pages/inventory/GRNListPage';
 import { StockManagementPage } from './pages/inventory/StockManagementPage';
 import { SupplierManagementPage } from './pages/inventory/SupplierManagementPage';
-import { StockLocationPage } from './pages/inventory/StockLocationPage';
+import { StockLocationPage } from './pages/configurations/StockLocationPage';
 import { StockTransferPage } from './pages/inventory/StockTransferPage';
 import { UnitTypePage } from './pages/inventory/UnitTypePage';
 import { PaymentTypePage } from './pages/inventory/PaymentTypePage';
@@ -44,6 +44,7 @@ import { ManageUserAuthPage } from './pages/configurations/ManageUserAuthPage';
 import { ManageOrderTypePage } from './pages/configurations/ManageOrderTypePage';
 import { ManageStatusPage } from './pages/configurations/ManageStatusPage';
 import { ManageBusinessProfilePage } from './pages/configurations/ManageBusinessProfilePage';
+import { ManageStockAdjPage } from './pages/configurations/ManageStockAdjPage';
 
 export function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -116,7 +117,7 @@ export function App() {
             <Route path="/inventory/payment-type" element={<TopBar title="Payment Types" userName={userName} />} />
             <Route path="/inventory/printer-type" element={<TopBar title="Printer Configuration" userName={userName} />} />
             <Route path="/inventory/config-tables" element={<TopBar title="Configuration Tables" userName={userName} />} />
-            <Route path="/inventory/main-table-location" element={<TopBar title="Main Table Locations" userName={userName} />} />
+            {/* <Route path="/inventory/main-table-location" element={<TopBar title="Main Table Locations" userName={userName} />} /> */}
             <Route path="/inventory/sub-table-location" element={<TopBar title="Sub-Table Locations" userName={userName} />} />
             <Route path="/reports/duration-sales" element={<TopBar title="Duration Sales Report" userName={userName} />} />
             <Route path="/configurations/manage-reasons" element={<TopBar title="Manage Reasons" userName={userName} />} />
@@ -127,6 +128,7 @@ export function App() {
             <Route path="/configurations/manage-order-type" element={<TopBar title="Manage Order Types" userName={userName} />} />
             <Route path="/configurations/manage-status" element={<TopBar title="Manage Status" userName={userName} />} />
             <Route path="/configurations/manage-business-profile" element={<TopBar title="Manage Business Profile" userName={userName} />} />
+            <Route path="/configurations/stock-adj" element={<TopBar title="Stock Adjustment" userName={userName} />} />
             <Route path="*" element={<TopBar title="Petal Pink POS System" userName={userName} />} />
           </Routes>
 
@@ -147,11 +149,11 @@ export function App() {
               <Route path="/inventory/item-list" element={<ItemListPage />} />
               <Route path="/inventory/purchase-order" element={<PurchaseOrderPage />} />
               <Route path="/inventory/purchase-order-list" element={<PurchaseOrderListPage />} />
-              <Route path="/inventory/grn" element={<GoodReceiveNotePage />} />
+              {/* <Route path="/inventory/grn" element={<GoodReceiveNotePage />} /> */}
               <Route path="/inventory/grn-list" element={<GRNListPage />} />
               <Route path="/inventory/stock-management" element={<StockManagementPage />} />
               <Route path="/inventory/supplier-management" element={<SupplierManagementPage />} />
-              <Route path="/inventory/stock-location" element={<StockLocationPage />} />
+              {/* <Route path="/inventory/stock-location" element={<StockLocationPage />} /> */}
               <Route path="/inventory/stock-transfer" element={<StockTransferPage />} />
               <Route path="/inventory/unit-type" element={<UnitTypePage />} />
               <Route path="/inventory/payment-type" element={<PaymentTypePage />} />
@@ -170,6 +172,11 @@ export function App() {
               <Route path="/configurations/manage-order-type" element={<ManageOrderTypePage />} />
               <Route path="/configurations/manage-status" element={<ManageStatusPage />} />
               <Route path="/configurations/manage-business-profile" element={<ManageBusinessProfilePage />} />
+              <Route path="/configurations/main-table-location" element={<ManageBusinessProfilePage />} />
+              <Route path="/configurations/stock-location" element={<StockLocationPage />} />
+              <Route path="/configurations/stock-adj" element={<ManageStockAdjPage />} />
+
+              <Route path="/inventory/main-table-location" element={<StockLocationPage/>} />
 
               {/* Placeholder Routes */}
               <Route path="/pms" element={<PlaceholderPage title="PMS" />} />

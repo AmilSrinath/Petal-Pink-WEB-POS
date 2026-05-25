@@ -208,15 +208,17 @@ export function InquiryPage() {
     <div className="p-6 h-[calc(100vh-4rem)] flex flex-col relative">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">View Inquiry</h1>
-        <p className="text-xs text-gray-400">Double-click a row to change its status</p>
-      </div>
 
-      <button
-        onClick={() => setShowAddModal(true)}
-        className="rounded-xl bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 text-sm font-semibold transition-all"
-      >
-        + Add Inquiry
-      </button>
+        <div className="flex items-center gap-4">
+          <p className="text-xs text-gray-400">Double-click a row to change its status</p>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="rounded-xl bg-teal-500 hover:bg-teal-600 text-white px-4 py-2 text-sm font-semibold transition-all"
+          >
+            + Add Inquiry
+          </button>
+        </div>
+      </div>
 
       <FilterBar
         filters={[
