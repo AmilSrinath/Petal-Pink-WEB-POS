@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { DataTable, Column } from '../../components/DataTable';
 import { PlusIcon, EditIcon, TrashIcon, PhoneIcon, MailIcon, XIcon } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
-const API = 'http://localhost:8080/api/suppliers';
+const API = `${API_BASE_URL}/api/suppliers`;
 
 interface Supplier {
   supplierId?: number;

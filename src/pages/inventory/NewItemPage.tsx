@@ -4,16 +4,17 @@ import {
   SearchIcon, XIcon, LoaderIcon, PackageIcon, FlaskConicalIcon,
   ChevronDownIcon, ChevronUpIcon,
 } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
-const API_BASE = 'http://localhost:8080/api/items';
-const API_PROFILES = 'http://localhost:8080/api/config/business-profiles';
-const API_MAIN_CATEGORIES = 'http://localhost:8080/api/categories';
-const API_SUB_CATEGORIES = 'http://localhost:8080/api/sub-categories';
-const API_UNIT_TYPES = 'http://localhost:8080/api/unit-types';
-const API_PRINTER_TYPES = 'http://localhost:8080/api/printer-types';
-const API_ITEM_TEMPLATES = 'http://localhost:8080/api/item-templates';
-const API_GRN_ITEMS = 'http://localhost:8080/api/items/grn';
-const API_STOCKS = 'http://localhost:8080/api/stocks';
+const API_BASE = `${API_BASE_URL}/api/items`;
+const API_PROFILES = `${API_BASE_URL}/api/config/business-profiles`;
+const API_MAIN_CATEGORIES = `${API_BASE_URL}/api/categories`;
+const API_SUB_CATEGORIES = `${API_BASE_URL}/api/sub-categories`;
+const API_UNIT_TYPES = `${API_BASE_URL}/api/unit-types`;
+const API_PRINTER_TYPES = `${API_BASE_URL}/api/printer-types`;
+const API_ITEM_TEMPLATES = `${API_BASE_URL}/api/item-templates`;
+const API_GRN_ITEMS = `${API_BASE_URL}/api/items/grn`;
+const API_STOCKS = `${API_BASE_URL}/api/stocks`;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface BusinessProfile {
@@ -166,6 +167,8 @@ export function NewItemPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const [search, setSearch] = useState('');
+  const [filterMainCategory, setFilterMainCategory] = useState('');
+  const [filterSubCategory, setFilterSubCategory] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [grnItems, setGrnItems] = useState<Item[]>([]);
@@ -443,6 +446,7 @@ export function NewItemPage() {
           lowStockAlert: formData.isLowStockAlert && formData.lowStockAlert
             ? Number(formData.lowStockAlert)
             : null,
+            isSellingItem: formData.isSellingItem ? 1 : 0,
         };
 
         // POST to initialize (backend skips if already exists and updates alert fields)
@@ -482,10 +486,10 @@ export function NewItemPage() {
           );
 
           if (!templateRes.ok) {
-            showToast('Item saved, but template failed to save', false);
+            await fetchItems();          // ← fetch FIRST, then close
             setModalOpen(false);
             setEditingItem(null);
-            await fetchItems();
+            showToast('Item saved, but template failed to save', false);
             return;
           }
 
@@ -498,10 +502,10 @@ export function NewItemPage() {
         }
       }
 
+      await fetchItems();            // ← fetch FIRST, then close
       showToast(editingItem ? 'Item updated successfully' : 'Item saved successfully');
       setModalOpen(false);
       setEditingItem(null);
-      await fetchItems();
     } catch (e: any) {
       showToast(e.message ?? 'Failed to save item', false);
     } finally {
@@ -526,24 +530,28 @@ export function NewItemPage() {
     const { name, value, type } = e.target;
     const checked = type === 'checkbox' ? (e.target as HTMLInputElement).checked : undefined;
 
-    setFormData(prev => {
-      const updated = { ...prev, [name]: type === 'checkbox' ? checked : value };
-
-      if (name === 'isGrn' && checked) updated.isSellingItem = false;
-      if (name === 'isSellingItem' && checked) updated.isGrn = false;
-
-      return updated;
-    });
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value,
+    }));
   };
 
   const handleMainCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setFormData(prev => ({ ...prev, mainCategory: e.target.value, subCategory: '' }));
   };
 
-  const filtered = items.filter(i =>
-    i.itemName.toLowerCase().includes(search.toLowerCase()) ||
-    i.itemCodePrefix.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = items.filter(i => {
+    const matchesSearch =
+      i.itemName.toLowerCase().includes(search.toLowerCase()) ||
+      i.itemCodePrefix.toLowerCase().includes(search.toLowerCase());
+    const matchesMain = !filterMainCategory || String(i.mainItemCategoryId) === filterMainCategory;
+    const matchesSub = !filterSubCategory || String(i.subItemCategoryId) === filterSubCategory;
+    return matchesSearch && matchesMain && matchesSub;
+  });
+
+  const filterSubOptions = filterMainCategory
+    ? subCategories.filter(s => s.mainItemCategoryId === Number(filterMainCategory))
+    : subCategories;
 
   const filteredSubCategories = formData.mainCategory
     ? subCategories.filter(s => s.mainItemCategoryId === Number(formData.mainCategory))
@@ -579,7 +587,7 @@ export function NewItemPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h2 className="text-2xl font-bold text-gray-900">Item List</h2>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="relative">
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
@@ -590,6 +598,49 @@ export function NewItemPage() {
                 className="pl-9 pr-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-teal-500 focus:outline-none w-52"
               />
             </div>
+            {/* Main Category Filter */}
+            <select
+              value={filterMainCategory}
+              onChange={e => {
+                setFilterMainCategory(e.target.value);
+                setFilterSubCategory('');
+              }}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none bg-white text-gray-700"
+            >
+              <option value="">All Categories</option>
+              {mainCategories.map(c => (
+                <option key={c.mainItemCategoryId} value={String(c.mainItemCategoryId)}>
+                  {c.mainItemCategoryName}
+                </option>
+              ))}
+            </select>
+            {/* Sub Category Filter */}
+            <select
+              value={filterSubCategory}
+              onChange={e => setFilterSubCategory(e.target.value)}
+              disabled={!filterMainCategory}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none bg-white text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="">
+                {filterMainCategory ? 'All Sub Categories' : 'Select category first'}
+              </option>
+              {filterSubOptions.map(s => (
+                <option key={s.subItemCategoryId} value={String(s.subItemCategoryId)}>
+                  {s.subItemCategoryName}
+                </option>
+              ))}
+            </select>
+            {/* Clear filters */}
+            {(filterMainCategory || filterSubCategory || search) && (
+              <button
+                onClick={() => { setFilterMainCategory(''); setFilterSubCategory(''); setSearch(''); }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors"
+                title="Clear all filters"
+              >
+                <XIcon className="h-3.5 w-3.5" />
+                Clear
+              </button>
+            )}
             <button
               onClick={openNew}
               className="flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 transition-colors"
@@ -677,7 +728,7 @@ export function NewItemPage() {
             {/* Header */}
             <div className="sticky top-0 z-10 flex items-center justify-between bg-white px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-bold text-gray-900">
-                {editingItem ? `Edit Item — ${editingItem.itemCodePrefix}` : 'Add New Item'}
+                {editingItem ? `Edit Item — ${editingItem.itemName}` : 'Add New Item'}
               </h2>
               <button onClick={closeModal} disabled={saving}
                 className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
@@ -805,12 +856,12 @@ export function NewItemPage() {
                       ))}
                     </select>
                   </Field>
-                  <Field label="Store Template">
+                  {/* <Field label="Store Template">
                     <select name="storeTemplate" value={formData.storeTemplate} onChange={handleChange} className={inputCls}>
                       <option value="">Select template</option>
                       <option>Default</option><option>Compact</option><option>Extended</option>
                     </select>
-                  </Field>
+                  </Field> */}
                 </div>
               </Section>
 

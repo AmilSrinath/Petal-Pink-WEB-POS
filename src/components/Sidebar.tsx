@@ -5,22 +5,20 @@ import logo from '../assets/logo.png';
 import {
   LayoutDashboardIcon,
   ShoppingCartIcon,
-  TruckIcon,
   FilterIcon,
   CreditCardIcon,
   HelpCircleIcon,
-  UsersIcon,
   UserIcon,
-  ShieldIcon,
   LogOutIcon,
   PackageIcon,
   BarChartIcon,
   SettingsIcon,
   BuildingIcon,
+  GlobeIcon,
   ChevronDownIcon,
   MenuIcon,
-  XIcon } from
-'lucide-react';
+  XIcon
+} from 'lucide-react';
 
 interface SidebarProps {
   onLogout: () => void;
@@ -57,6 +55,7 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
         // { path: '/inventory/grn', label: 'Good Receive Note' },
         { path: '/inventory/grn-list', label: 'Good Receive Notes(GRN)' },
         { path: '/inventory/stock-management', label: 'Stock Management' },
+        { path: '/inventory/production', label: 'Production' },
         { path: '/inventory/supplier-management', label: 'Supplier' },
         // { path: '/inventory/stock-location', label: 'Stock Location' },
         { path: '/inventory/stock-transfer', label: 'Stock Transfer' },
@@ -88,9 +87,47 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
       icon: BuildingIcon
     },
     {
+      path: '/website',
+      label: 'Website',
+      icon: GlobeIcon,
+      submenu: [
+        {
+          path: '/website/web-dashboard',
+          label: 'Website Dashboard'
+        },
+        {
+          path: '/website/manage-web-banners',
+          label: 'Manage Banners'
+        },
+        {
+          path: '/website/manage-web-categories',
+          label: 'Manage Categories'
+        },
+        {
+          path: '/website/manage-web-orders',
+          label: 'Manage Orders'
+        },
+        {
+          path: '/website/manage-web-products',
+          label: 'Manage Products'
+        },
+        {
+          path: '/website/manage-web-promotions',
+          label: 'Manage Promotions'
+        }
+      ]
+    },
+    {
       path: '/employee',
       label: 'Employee',
-      icon: UserIcon
+      icon: UserIcon,
+      submenu: [
+        { path: '/employee/employee-manage', label: 'Employee Manage' },
+        { path: '/employee/user-account-manage', label: 'User Account Manage' },
+        { path: '/employee/user-role-manage', label: 'User Role Manage' },
+        { path: '/employee/employee-designation', label: 'Employee Designation' },
+        { path: '/employee/employee-title', label: 'Employee Title' },
+      ]
     },
     {
       path: '/property-management',
@@ -129,17 +166,18 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
     return allNavItems.filter((item: any) => {
       // Map menu labels to module names from the API
       const moduleMap: Record<string, string> = {
-        'Dashboard': 'Dashboard',
-        'Sales': 'Delivery Orders',
-        'Inventory': 'Inventory',
+        Dashboard: 'Dashboard',
+        Sales: 'Delivery Orders',
+        Inventory: 'Inventory',
         'Filter Order': 'Filter Order',
-        'Payment': 'Payment',
-        'Inquiry': 'Inquiry',
-        'PMS': 'PMS',
-        'Employee': 'Employee',
+        Payment: 'Payment',
+        Inquiry: 'Inquiry',
+        PMS: 'PMS',
+        Website: 'Website',
+        Employee: 'Employee',
         'Property Management': 'Property Management',
-        'Report': 'Report',
-        'Configurations': 'Configuration',
+        Reports: 'Report',
+        Configurations: 'Configuration',
       };
 
       const moduleName = moduleMap[item.label];

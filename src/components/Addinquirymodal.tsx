@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { API_BASE_URL } from '../config'; 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
   useEffect(() => {
     if (step !== 1 || companies.length) return;
     setCompaniesLoading(true);
-    fetch('http://localhost:8080/api/courier-companies')
+    fetch(`${API_BASE_URL}/api/courier-companies`)
       .then(r => r.json())
       .then(setCompanies)
       .catch(() => {})
@@ -145,7 +146,7 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
     setSelectedBranch(null);
     setBranchSearch('');
     setBranchesLoading(true);
-    fetch(`http://localhost:8080/api/courier-branches/by-company/${selectedCompany.companyId}`)
+    fetch(`${API_BASE_URL}/api/courier-branches/by-company/${selectedCompany.companyId}`)
       .then(r => r.json())
       .then(setBranches)
       .catch(() => {})
@@ -156,7 +157,7 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
   useEffect(() => {
     if (step !== 3 || reasons.length) return;
     setReasonsLoading(true);
-    fetch('http://localhost:8080/api/reasons')
+    fetch(`${API_BASE_URL}/api/reasons`)
       .then(r => r.json())
       .then(setReasons)
       .catch(() => {})
@@ -178,7 +179,7 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
     setOrderError(null);
     setOrder(null);
     try {
-      const res = await fetch(`http://localhost:8080/api/sales/delivery-orders/tracking/${code}`);
+      const res = await fetch(`${API_BASE_URL}/api/sales/delivery-orders/tracking/${code}`);
       if (res.status === 404) throw new Error('Tracking number not found.');
       if (!res.ok)            throw new Error(`Server error: ${res.status}`);
       const data = await res.json();
@@ -210,7 +211,7 @@ export function AddInquiryModal({ onClose, onSaved }: Props) {
       statusId: 1,
     };
     try {
-      const res = await fetch('http://localhost:8080/api/inquiry/inquiries', {
+      const res = await fetch(`${API_BASE_URL}/api/inquiry/inquiries`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(payload),

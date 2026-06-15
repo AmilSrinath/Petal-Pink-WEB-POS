@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserIcon, LockIcon } from 'lucide-react';
 import logo from '../assets/logo.png';
+import { API_BASE_URL } from '../config';
 
 interface User {
   userId: number;
@@ -29,7 +30,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const response = await fetch('http://localhost:8080/api/users');
+        const response = await fetch(`${API_BASE_URL}/api/users`);
         if (!response.ok) throw new Error('Failed to fetch users');
         const data: User[] = await response.json();
         const activeUsers = data.filter((u) => u.status === 1 && u.visible === 1);
@@ -59,7 +60,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     setLoginError('');
 
     try {
-      const response = await fetch('http://localhost:8080/api/users/check-password', {
+      const response = await fetch(`${API_BASE_URL}/api/users/check-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

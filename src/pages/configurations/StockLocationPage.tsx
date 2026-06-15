@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { DataTable, Column } from '../../components/DataTable';
 import { PlusIcon, EditIcon, TrashIcon, XIcon } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
-const BASE_URL = 'http://localhost:8080/api/stock-location';
+const BASE_URL = `${API_BASE_URL}/api/stock-location`;
 
 interface StockCategoryDTO {
   stockCategoryId?: number;

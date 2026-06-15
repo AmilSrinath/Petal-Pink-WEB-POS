@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Calendar, RefreshCw, Printer, Download } from 'lucide-react';
+import { API_BASE_URL } from '../config'; 
 
 interface DurationSalesReportData {
   allOrdersCount: number;
@@ -57,7 +58,7 @@ export function DurationSalesReportPage() {
 
     try {
       const response = await fetch(
-        `http://localhost:8080/api/reports/duration-sales?dateFrom=${dateFrom}&dateTo=${dateTo}`
+        `${API_BASE_URL}/api/reports/duration-sales?dateFrom=${dateFrom}&dateTo=${dateTo}`
       );
 
       if (!response.ok) {

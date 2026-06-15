@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DataTable, Column } from '../../components/DataTable';
 import { TrashIcon, PencilIcon, XIcon, CheckIcon, PlusCircleIcon, MinusCircleIcon } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
 interface StockAdjType {
   stockAdjTypeId: number;
@@ -10,7 +11,7 @@ interface StockAdjType {
   status: number;
 }
 
-const API_BASE = 'http://localhost:8080/api/stock-adj-types';
+const API_BASE = `${API_BASE_URL}/api/stock-adj-types`;
 
 export function ManageStockAdjPage() {
   const [stockAdjTypes, setStockAdjTypes] = useState<StockAdjType[]>([]);

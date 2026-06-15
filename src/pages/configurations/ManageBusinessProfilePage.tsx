@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { DataTable, Column } from '../../components/DataTable';
 import { TrashIcon, PencilIcon, CheckIcon, XIcon, Loader2Icon } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
-const BASE_URL = 'http://localhost:8080/api/business-profiles';
+const BASE_URL = `${API_BASE_URL}/api/business-profiles`;
 
 interface BusinessProfileDTO {
   bussinessProfileId: number;

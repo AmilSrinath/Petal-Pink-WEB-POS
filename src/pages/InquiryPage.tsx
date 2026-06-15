@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, Column } from '../components/DataTable';
 import { AddInquiryModal } from '../components/Addinquirymodal';
+import { API_BASE_URL } from '../config';
 
 interface Inquiry {
   inquiryId: number;
@@ -21,15 +22,22 @@ interface Inquiry {
 }
 
 const STATUS_MAP: Record<number, { label: string; className: string; btnClass: string }> = {
-  10: { label: 'Delivered',     className: 'bg-green-100 text-green-800',  btnClass: 'bg-green-500 hover:bg-green-600 text-white' },
-  11: { label: 'Not Delivered', className: 'bg-red-100 text-red-800',     btnClass: 'bg-red-500 hover:bg-red-600 text-white' },
+  10: { label: 'Delivered',     className: 'bg-green-100 text-green-800',   btnClass: 'bg-green-500 hover:bg-green-600 text-white' },
+  11: { label: 'Not Delivered', className: 'bg-red-100 text-red-800',      btnClass: 'bg-red-500 hover:bg-red-600 text-white' },
   14: { label: 'Returned',      className: 'bg-yellow-100 text-yellow-800', btnClass: 'bg-yellow-500 hover:bg-yellow-600 text-white' },
-  15: { label: 'Cancelled',     className: 'bg-gray-100 text-gray-800',   btnClass: 'bg-gray-500 hover:bg-gray-600 text-white' },
+  15: { label: 'Cancelled',     className: 'bg-gray-100 text-gray-800',    btnClass: 'bg-gray-500 hover:bg-gray-600 text-white' },
 };
 
 function formatDate(iso: string) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-GB');
+}
+
+// ─── Module-level cache (survives re-renders and page navigation) ──────────────
+const inquiryCache = new Map<string, Inquiry[]>();
+
+function getCacheKey(start: string, end: string) {
+  return `${start}__${end}`;
 }
 
 // ─── Status Change Modal ───────────────────────────────────────────────────────
@@ -50,7 +58,7 @@ function StatusModal({ inquiry, onClose, onStatusChanged }: StatusModalProps) {
       setSaving(true);
       setError(null);
       const res = await fetch(
-        `http://localhost:8080/api/inquiry/inquiries/${inquiry.inquiryId}/status?statusId=${statusId}`,
+        `${API_BASE_URL}/api/inquiry/inquiries/${inquiry.inquiryId}/status?statusId=${statusId}`,
         { method: 'PUT' }
       );
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
@@ -64,12 +72,10 @@ function StatusModal({ inquiry, onClose, onStatusChanged }: StatusModalProps) {
   };
 
   return (
-    // Backdrop
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
       onClick={onClose}
     >
-      {/* Panel */}
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6"
         onClick={(e) => e.stopPropagation()}
@@ -129,9 +135,9 @@ function StatusModal({ inquiry, onClose, onStatusChanged }: StatusModalProps) {
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export function InquiryPage() {
-  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [error, setError]         = useState<string | null>(null);
+  const [allInquiries, setAllInquiries] = useState<Inquiry[]>([]);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState<string | null>(null);
   const [selectedInquiry, setSelectedInquiry] = useState<Inquiry | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -142,7 +148,8 @@ export function InquiryPage() {
   const [endDate,      setEndDate]      = useState(today);
   const [statusFilter, setStatusFilter] = useState('');
 
-  const filteredInquiries = inquiries.filter((inq) => {
+  // ── All filtering is purely local — instant, no API call ──────────────────
+  const filteredInquiries = allInquiries.filter((inq) => {
     const matchesWayBill =
       wayBill.trim() === '' ||
       inq.wayBill.toLowerCase().includes(wayBill.trim().toLowerCase());
@@ -154,16 +161,37 @@ export function InquiryPage() {
   useEffect(() => { fetchInquiries(); }, []); // eslint-disable-line
 
   const fetchInquiries = async () => {
-    if (!startDate || !endDate) { setError('Please select both From and To dates.'); return; }
-    if (endDate < startDate)    { setError('"To" date cannot be before "From" date.'); return; }
+    const hasWayBill = wayBill.trim() !== '';
 
+    // Only enforce date validation when searching by date range
+    if (!hasWayBill) {
+      if (!startDate || !endDate) { setError('Please select both From and To dates.'); return; }
+      if (endDate < startDate)    { setError('"To" date cannot be before "From" date.'); return; }
+    }
+
+    const resolvedStart = hasWayBill ? '2000-01-01' : startDate;
+    const resolvedEnd   = hasWayBill ? '2099-12-31' : endDate;
+    const cacheKey      = getCacheKey(resolvedStart, resolvedEnd);
+
+    // ✅ Cache hit — use stored data, skip the API call entirely
+    if (inquiryCache.has(cacheKey)) {
+      setAllInquiries(inquiryCache.get(cacheKey)!);
+      setError(null);
+      return;
+    }
+
+    // 🌐 Cache miss — fetch from API and store in cache
     try {
       setLoading(true);
       setError(null);
-      const params = new URLSearchParams({ startDate, endDate });
-      const response = await fetch(`http://localhost:8080/api/inquiry/inquiries/by-date?${params}`);
+
+      const params = new URLSearchParams({ startDate: resolvedStart, endDate: resolvedEnd });
+      const response = await fetch(`${API_BASE_URL}/api/inquiry/inquiries/by-date?${params}`);
       if (!response.ok) throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
-      setInquiries(await response.json());
+
+      const data: Inquiry[] = await response.json();
+      inquiryCache.set(cacheKey, data); // 💾 Save in cache
+      setAllInquiries(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
     } finally {
@@ -171,26 +199,38 @@ export function InquiryPage() {
     }
   };
 
-  // Called by modal after a successful API update — update local state instantly
+  // Update local state AND patch every matching cache entry
   const handleStatusChanged = (inquiryId: number, newStatusId: number) => {
-    setInquiries((prev) =>
-      prev.map((inq) =>
-        inq.inquiryId === inquiryId ? { ...inq, statusId: newStatusId } : inq
-      )
-    );
+    const patchList = (list: Inquiry[]) =>
+      list.map((inq) => (inq.inquiryId === inquiryId ? { ...inq, statusId: newStatusId } : inq));
+
+    setAllInquiries((prev) => patchList(prev));
+
+    // Keep cache in sync so navigating back doesn't revert the status
+    for (const [key, cached] of inquiryCache.entries()) {
+      if (cached.some((i) => i.inquiryId === inquiryId)) {
+        inquiryCache.set(key, patchList(cached));
+      }
+    }
+  };
+
+  // After adding a new inquiry, clear cache so fresh data is loaded
+  const handleInquirySaved = () => {
+    inquiryCache.clear();
+    fetchInquiries();
   };
 
   const columns: Column<Inquiry>[] = [
-    { header: 'Way Bill',         accessor: 'wayBill',         className: 'font-medium text-teal-600 whitespace-nowrap' },
-    { header: 'Customer Code',    accessor: 'customerNumber',  className: 'whitespace-nowrap' },
-    { header: 'Customer Name',    accessor: 'customerName',    className: 'whitespace-nowrap' },
-    { header: 'Customer Phone 1', accessor: 'customerPhoneOne',className: 'whitespace-nowrap' },
-    { header: 'Customer Phone 2', accessor: 'customerPhoneTwo',className: 'whitespace-nowrap' },
-    { header: 'Branch',           accessor: 'branch',          className: 'whitespace-nowrap' },
-    { header: 'Branch Contact',   accessor: 'branchContact',   className: 'whitespace-nowrap' },
+    { header: 'Way Bill',         accessor: 'wayBill',          className: 'font-medium text-teal-600 whitespace-nowrap' },
+    { header: 'Customer Code',    accessor: 'customerNumber',   className: 'whitespace-nowrap' },
+    { header: 'Customer Name',    accessor: 'customerName',     className: 'whitespace-nowrap' },
+    { header: 'Customer Phone 1', accessor: 'customerPhoneOne', className: 'whitespace-nowrap' },
+    { header: 'Customer Phone 2', accessor: 'customerPhoneTwo', className: 'whitespace-nowrap' },
+    { header: 'Branch',           accessor: 'branch',           className: 'whitespace-nowrap' },
+    { header: 'Branch Contact',   accessor: 'branchContact',    className: 'whitespace-nowrap' },
     { header: 'Created Date',     accessor: (row) => formatDate(row.createdDate), className: 'whitespace-nowrap' },
-    { header: 'Reason',           accessor: 'reason',          className: 'max-w-[150px] truncate' },
-    { header: 'Remark',           accessor: 'remark',          className: 'max-w-[150px] truncate' },
+    { header: 'Reason',           accessor: 'reason',           className: 'max-w-[150px] truncate' },
+    { header: 'Remark',           accessor: 'remark',           className: 'max-w-[150px] truncate' },
     {
       header: 'Status',
       accessor: (row) => {
@@ -200,7 +240,7 @@ export function InquiryPage() {
             {s.label}
           </span>
         );
-      }
+      },
     },
   ];
 
@@ -232,8 +272,8 @@ export function InquiryPage() {
               { label: 'Not Delivered', value: '11' },
               { label: 'Returned',      value: '14' },
               { label: 'Cancelled',     value: '15' },
-            ]
-          }
+            ],
+          },
         ]}
         totalCount={filteredInquiries.length}
         totalLabel="Total Inquiries"
@@ -265,7 +305,7 @@ export function InquiryPage() {
       {showAddModal && (
         <AddInquiryModal
           onClose={() => setShowAddModal(false)}
-          onSaved={fetchInquiries}   // re-fetches the list after saving
+          onSaved={handleInquirySaved}
         />
       )}
     </div>

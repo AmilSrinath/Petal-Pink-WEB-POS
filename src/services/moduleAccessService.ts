@@ -1,4 +1,8 @@
-const API_BASE_URL = 'http://localhost:8080/api';
+import { API_BASE_URL } from '../config';
+
+const API_BASE = `${API_BASE_URL}/api`;
+
+// const API_BASE_URL = 'https://pos.petalpink.lk/api';
 
 export interface ModuleAccess {
   moduleId: number;
@@ -16,7 +20,7 @@ export interface AccessibleModule {
  */
 export async function fetchModuleAccess(userId: number): Promise<ModuleAccess[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/module/access/${userId}`);
+    const response = await fetch(`${API_BASE}/module/access/${userId}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch module access: ${response.statusText}`);
     }
@@ -32,7 +36,7 @@ export async function fetchModuleAccess(userId: number): Promise<ModuleAccess[]>
  */
 export async function fetchAccessibleModules(userId: number): Promise<AccessibleModule[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/module/accessible/${userId}`);
+    const response = await fetch(`${API_BASE}/module/accessible/${userId}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch accessible modules: ${response.statusText}`);
     }

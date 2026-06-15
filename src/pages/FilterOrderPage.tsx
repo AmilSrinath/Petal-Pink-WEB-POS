@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { FilterBar } from '../components/FilterBar';
+import { API_BASE_URL } from '../config'; 
 import { DataTable, Column } from '../components/DataTable';
 import {
   PrinterIcon,
@@ -113,6 +114,27 @@ interface OrderDetailItem {
   remark: string;
 }
 
+// ─── Module-level cache ───────────────────────────────────────────────────────
+// Persists across re-renders and page navigation within the same session.
+
+interface AppCache {
+  orders:        Order[]        | null;
+  paymentTypes:  PaymentType[]  | null;
+  statusTypes:   StatusType[]   | null;
+  orderTypes:    OrderType[]    | null;
+  autoGenerateId: boolean | null;
+  isPrint:        boolean | null;
+}
+
+const appCache: AppCache = {
+  orders:         null,
+  paymentTypes:   null,
+  statusTypes:    null,
+  orderTypes:     null,
+  autoGenerateId: null,
+  isPrint:        null,
+};
+
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 
 const isSuperAdmin = (): boolean => {
@@ -126,7 +148,7 @@ const isStatusButtonAllowed = (currentStatusId: number, targetStatusId: number):
   const allowedTransitions: Record<number, number[]> = {
     2:  [3, 7],
     3:  [4],
-    4:  [5, 16],  // ← 16 = Damage
+    4:  [5, 16],
     12: [6],
   };
   return (allowedTransitions[currentStatusId] ?? []).includes(targetStatusId);
@@ -171,7 +193,7 @@ const actionButtons: ActionButton[] = [
   { label: 'Cancel',       icon: <XCircleIcon className="h-4 w-4" />,      color: 'bg-gray-500',   hoverColor: 'hover:bg-gray-600',   textColor: 'text-white', action: 'status',  statusId: 7  },
   { label: 'Returning',    icon: <RotateCcwIcon className="h-4 w-4" />,    color: 'bg-rose-400',   hoverColor: 'hover:bg-rose-500',   textColor: 'text-white', action: 'status',  statusId: 12 },
   { label: 'Checking',     icon: <AlertCircleIcon className="h-4 w-4" />,  color: 'bg-cyan-500',   hoverColor: 'hover:bg-cyan-600',   textColor: 'text-white', action: 'status',  statusId: 13 },
-  { label: 'Damage',    icon: <AlertTriangleIcon className="h-4 w-4" />,  color: 'bg-orange-500', hoverColor: 'hover:bg-orange-600', textColor: 'text-white', action: 'status', statusId: 16 },
+  { label: 'Damage',       icon: <AlertTriangleIcon className="h-4 w-4" />,color: 'bg-orange-500', hoverColor: 'hover:bg-orange-600', textColor: 'text-white', action: 'status',  statusId: 16 },
   { label: 'Special Note', icon: <FileTextIcon className="h-4 w-4" />,     color: 'bg-violet-500', hoverColor: 'hover:bg-violet-600', textColor: 'text-white', action: 'remark'  },
 ];
 
@@ -183,19 +205,12 @@ interface OrderActionModalProps {
   onClose: () => void;
   onAction: (order: ModalOrder, action: string, statusId?: number, note?: string) => Promise<void>;
   statusTypes: StatusTypeOption[];
-  // ── NEW: config flags ──
   autoGenerateId: boolean;
   isPrint: boolean;
 }
 
 const OrderActionModal = ({
-  order,
-  isOpen,
-  onClose,
-  onAction,
-  statusTypes,
-  autoGenerateId,
-  isPrint,
+  order, isOpen, onClose, onAction, statusTypes, autoGenerateId, isPrint,
 }: OrderActionModalProps) => {
   const [specialNote,     setSpecialNote]     = useState('');
   const [showNoteInput,   setShowNoteInput]   = useState(false);
@@ -209,15 +224,9 @@ const OrderActionModal = ({
 
   useEffect(() => {
     if (!isOpen) {
-      setSpecialNote('');
-      setShowNoteInput(false);
-      setShowRemarkInput(false);
-      setRemarkText('');
-      setIsLoadingRemark(false);
-      setIsSavingRemark(false);
-      setRemarkError(null);
-      setLoadingStatusId(null);
-      setActionError(null);
+      setSpecialNote(''); setShowNoteInput(false); setShowRemarkInput(false);
+      setRemarkText(''); setIsLoadingRemark(false); setIsSavingRemark(false);
+      setRemarkError(null); setLoadingStatusId(null); setActionError(null);
     }
   }, [isOpen]);
 
@@ -249,94 +258,63 @@ const OrderActionModal = ({
 
   const handleActionClick = async (btn: ActionButton) => {
     if (isButtonDisabled(btn)) return;
-
     if (btn.action === 'special_note') { setShowNoteInput(true); return; }
 
     if (btn.action === 'remark') {
-      setShowRemarkInput(true);
-      setRemarkError(null);
-      setIsLoadingRemark(true);
+      setShowRemarkInput(true); setRemarkError(null); setIsLoadingRemark(true);
       try {
-        const res = await fetch(`http://localhost:8080/api/sales/${order.deliveryId}/remark`);
+        const res = await fetch(`${API_BASE_URL}/api/sales/${order.deliveryId}/remark`);
         if (!res.ok) throw new Error(`Status ${res.status}`);
         setRemarkText((await res.text()) ?? '');
       } catch (err: any) {
-        setRemarkError(err.message ?? 'Failed to load remark');
-        setRemarkText('');
-      } finally {
-        setIsLoadingRemark(false);
-      }
+        setRemarkError(err.message ?? 'Failed to load remark'); setRemarkText('');
+      } finally { setIsLoadingRemark(false); }
       return;
     }
 
     if (btn.action === 'edit') { await onAction(order, 'edit'); onClose(); return; }
 
-    // ── Wrapping button (statusId === 3) ──────────────────────────────────────
     if (btn.action === 'status' && btn.statusId === 3) {
-      setLoadingStatusId(3);
-      setActionError(null);
+      setLoadingStatusId(3); setActionError(null);
       try {
         let trackingCode = order.orderCode?.trim() ?? '';
-
-        // Only call generate-tracking if auto-generate is enabled
         if (autoGenerateId) {
-          const res = await fetch(
-            `http://localhost:8080/api/sales/${order.deliveryId}/generate-tracking`,
-            { method: 'POST' }
-          );
-          if (!res.ok) {
-            const t = await res.text();
-            throw new Error(t || `Server error: ${res.status}`);
-          }
+          const res = await fetch(`${API_BASE_URL}/api/sales/${order.deliveryId}/generate-tracking`, { method: 'POST' });
+          if (!res.ok) { const t = await res.text(); throw new Error(t || `Server error: ${res.status}`); }
           trackingCode = await res.text();
         }
-
         await onAction(order, 'wrapping', 3, trackingCode);
-
-        // Trigger print only if is-print is enabled
-        if (isPrint) {
-          window.print();
-        }
-
+        if (isPrint) window.print();
         onClose();
       } catch (err: any) {
         setActionError(err.message ?? 'Failed to process wrapping');
-      } finally {
-        setLoadingStatusId(null);
-      }
+      } finally { setLoadingStatusId(null); }
       return;
     }
 
     if (btn.action === 'status' && btn.statusId !== undefined) {
-      setLoadingStatusId(btn.statusId);
-      setActionError(null);
+      setLoadingStatusId(btn.statusId); setActionError(null);
       try {
-        await onAction(order, 'status', btn.statusId);
-        onClose();
+        await onAction(order, 'status', btn.statusId); onClose();
       } catch (err: any) {
         setActionError(err.message ?? 'Failed to update status');
-      } finally {
-        setLoadingStatusId(null);
-      }
+      } finally { setLoadingStatusId(null); }
     }
   };
 
   const handleSaveNote = async () => { await onAction(order, 'special_note', undefined, specialNote); onClose(); };
 
   const handleSaveRemark = async () => {
-    setIsSavingRemark(true);
-    setRemarkError(null);
+    setIsSavingRemark(true); setRemarkError(null);
     try {
-      const res = await fetch(`http://localhost:8080/api/sales/${order.deliveryId}/remark`, {
+      const res = await fetch(`${API_BASE_URL}/api/sales/${order.deliveryId}/remark`, {
         method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: remarkText,
       });
       if (!res.ok) { const t = await res.text(); throw new Error(t || `Server error: ${res.status}`); }
       onClose();
     } catch (err: any) {
       setRemarkError(err.message ?? 'Failed to save remark');
-    } finally {
-      setIsSavingRemark(false);
-    }
+    } finally { setIsSavingRemark(false); }
   };
 
   return (
@@ -346,7 +324,6 @@ const OrderActionModal = ({
       onClick={(e) => { if (e.target === e.currentTarget && !isAnyLoading) onClose(); }}
     >
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
-
         <div className="flex items-center justify-between bg-gradient-to-r from-teal-600 to-teal-700 px-5 py-4">
           <div>
             <h3 className="text-base font-bold text-white">Order Actions</h3>
@@ -369,21 +346,12 @@ const OrderActionModal = ({
           </div>
         </div>
 
-        {/* Config indicator badges */}
         <div className="flex gap-2 px-5 pt-3">
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-            autoGenerateId
-              ? 'bg-teal-50 text-teal-700 border border-teal-200'
-              : 'bg-gray-100 text-gray-400 border border-gray-200'
-          }`}>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${autoGenerateId ? 'bg-teal-50 text-teal-700 border border-teal-200' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${autoGenerateId ? 'bg-teal-500' : 'bg-gray-400'}`} />
             Auto ID {autoGenerateId ? 'On' : 'Off'}
           </span>
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-            isPrint
-              ? 'bg-blue-50 text-blue-700 border border-blue-200'
-              : 'bg-gray-100 text-gray-400 border border-gray-200'
-          }`}>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${isPrint ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${isPrint ? 'bg-blue-500' : 'bg-gray-400'}`} />
             Print {isPrint ? 'On' : 'Off'}
           </span>
@@ -422,7 +390,6 @@ const OrderActionModal = ({
                 );
               })}
             </div>
-
           ) : showNoteInput ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -434,7 +401,6 @@ const OrderActionModal = ({
                 <button onClick={handleSaveNote} disabled={!specialNote.trim()} className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed">Save Note</button>
               </div>
             </div>
-
           ) : showRemarkInput ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -480,16 +446,14 @@ interface OrderViewModalProps {
 }
 
 const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, rawOrder }: OrderViewModalProps) => {
-  const [orderItems,    setOrderItems]    = useState<OrderDetailItem[]>([]);
-  const [loadingItems,  setLoadingItems]  = useState(false);
-  const [itemsError,    setItemsError]    = useState<string | null>(null);
+  const [orderItems,   setOrderItems]   = useState<OrderDetailItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [itemsError,   setItemsError]   = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen || !order?.orderId) return;
-    setOrderItems([]);
-    setItemsError(null);
-    setLoadingItems(true);
-    fetch(`http://localhost:8080/api/sales/orders/${order.orderId}/items`)
+    setOrderItems([]); setItemsError(null); setLoadingItems(true);
+    fetch(`${API_BASE_URL}/api/sales/orders/${order.orderId}/items`)
       .then((res) => { if (!res.ok) throw new Error(`Status ${res.status}`); return res.json(); })
       .then((data: OrderDetailItem[]) => setOrderItems(data))
       .catch((err) => setItemsError(err.message ?? 'Failed to load items'))
@@ -520,7 +484,6 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-
         <div className="flex items-center justify-between bg-gradient-to-r from-gray-700 to-gray-800 px-5 py-4 shrink-0">
           <div>
             <h3 className="text-base font-bold text-white">Order Details</h3>
@@ -572,12 +535,9 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-teal-700">
                     <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-white">#</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-white">Item Name</th>
-                      <th className="px-3 py-2 text-center text-xs font-medium text-white">Qty</th>
-                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Unit Price</th>
-                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Discount</th>
-                      <th className="px-3 py-2 text-right text-xs font-medium text-white">Total</th>
+                      {['#', 'Item Name', 'Qty', 'Unit Price', 'Discount', 'Total'].map((h) => (
+                        <th key={h} className={`px-3 py-2 text-xs font-medium text-white ${h === 'Qty' ? 'text-center' : h === '#' || h === 'Item Name' ? 'text-left' : 'text-right'}`}>{h}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white">
@@ -708,13 +668,12 @@ export function FilterOrderPage() {
   const [printing, setPrinting] = useState(false);
   const [toast,    setToast]    = useState<Toast | null>(null);
 
-  // ── NEW: Config flags ──────────────────────────────────────────────────────
   const [autoGenerateId, setAutoGenerateId] = useState(false);
   const [isPrint,        setIsPrint]        = useState(false);
 
-  const [paymentTypes,  setPaymentTypes]  = useState<{ label: string; value: string }[]>([]);
-  const [statusTypes,   setStatusTypes]   = useState<{ label: string; value: string }[]>([]);
-  const [orderTypes,    setOrderTypes]    = useState<{ label: string; value: string }[]>([]);
+  const [paymentTypes, setPaymentTypes] = useState<{ label: string; value: string }[]>([]);
+  const [statusTypes,  setStatusTypes]  = useState<{ label: string; value: string }[]>([]);
+  const [orderTypes,   setOrderTypes]   = useState<{ label: string; value: string }[]>([]);
 
   const [paymentTypeMap,    setPaymentTypeMap]    = useState<Record<number, string>>({});
   const [statusTypeMap,     setStatusTypeMap]     = useState<Record<number, string>>({});
@@ -733,84 +692,110 @@ export function FilterOrderPage() {
     paymentType: '', status: '', orderType: '',
   });
 
-  const debouncedOrderCode    = filters.orderCode;
-  const debouncedCustomerCode = filters.customerCode;
-
   const showToast = (type: ToastType, message: string, duration = 4000) => {
     setToast({ type, message });
     if (type !== 'loading') setTimeout(() => setToast(null), duration);
   };
 
-  // ── NEW: Fetch auto-generate-id & is-print config ─────────────────────────
+  // ── Bootstrap: load everything (from cache when available) ────────────────
 
   useEffect(() => {
-    const fetchFeatureConfig = async () => {
+    const bootstrap = async () => {
+      setLoading(true);
       try {
-        const [autoIdRes, printRes] = await Promise.all([
-          fetch('http://localhost:8080/api/config/auto-generate-id'),
-          fetch('http://localhost:8080/api/config/is-print'),
-        ]);
+        // ── Config flags ───────────────────────────────────────────────────
+        if (appCache.autoGenerateId === null || appCache.isPrint === null) {
+          const [autoIdRes, printRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/api/config/auto-generate-id`),
+            fetch(`${API_BASE_URL}/api/config/is-print`),
+          ]);
+          if (autoIdRes.ok) {
+            const val = await autoIdRes.text();
+            appCache.autoGenerateId = val.trim() !== '0' && val.trim() !== '';
+          } else {
+            appCache.autoGenerateId = false;
+          }
+          if (printRes.ok) {
+            const val = await printRes.text();
+            appCache.isPrint = val.trim() !== '0' && val.trim() !== '';
+          } else {
+            appCache.isPrint = false;
+          }
+        }
+        setAutoGenerateId(appCache.autoGenerateId ?? false);
+        setIsPrint(appCache.isPrint ?? false);
 
-        if (autoIdRes.ok) {
-          const val = await autoIdRes.text();
-          setAutoGenerateId(val.trim() !== '0' && val.trim() !== '');
+        // ── Lookup tables (payment / status / order types) ─────────────────
+        const needLookups =
+          appCache.paymentTypes === null ||
+          appCache.statusTypes  === null ||
+          appCache.orderTypes   === null;
+
+        if (needLookups) {
+          const [paymentRes, statusRes, orderTypeRes] = await Promise.all([
+            fetch(`${API_BASE_URL}/api/payment-types`),
+            fetch(`${API_BASE_URL}/api/status/types/1`),
+            fetch(`${API_BASE_URL}/api/order-types`),
+          ]);
+          appCache.paymentTypes = await paymentRes.json();
+          appCache.statusTypes  = await statusRes.json();
+          appCache.orderTypes   = await orderTypeRes.json();
         }
 
-        if (printRes.ok) {
-          const val = await printRes.text();
-          setIsPrint(val.trim() !== '0' && val.trim() !== '');
+        // Populate derived state from cache
+        const pMap: Record<number, string> = {};
+        appCache.paymentTypes!.forEach((p) => { pMap[p.paymentTypeId] = p.paymentType; });
+        setPaymentTypeMap(pMap);
+
+        const sMap: Record<number, string> = {};
+        appCache.statusTypes!.forEach((s) => { sMap[s.statusId] = s.statusType; });
+        setStatusTypeMap(sMap);
+
+        setStatusTypeOptions(appCache.statusTypes!.map((s) => ({ statusId: s.statusId, statusType: s.statusType })));
+        setPaymentTypes(appCache.paymentTypes!.map((p) => ({ label: p.paymentType, value: String(p.paymentTypeId) })));
+        setStatusTypes(appCache.statusTypes!.map((s) => ({ label: s.statusType, value: String(s.statusId) })));
+        setOrderTypes(appCache.orderTypes!.map((o) => ({ label: o.type, value: String(o.type) })));
+
+        // ── Orders (always fetch fresh on first mount; use cache on revisit) ─
+        if (appCache.orders !== null) {
+          // ✅ Cache hit — skip the API call
+          setOrders(appCache.orders);
+        } else {
+          // 🌐 Cache miss — fetch and store
+          const ordersRes = await fetch(`${API_BASE_URL}/api/sales/get-all-orders`);
+          const ordersData: Order[] = await ordersRes.json();
+          appCache.orders = ordersData;
+          setOrders(ordersData);
         }
-      } catch (err) {
-        console.error('Failed to fetch feature config:', err);
-        // Defaults stay false (disabled) on error — safe fallback
+      } catch (error) {
+        console.error('Failed to fetch data:', error);
+      } finally {
+        setLoading(false);
       }
     };
 
-    fetchFeatureConfig();
+    bootstrap();
   }, []);
 
-  // ── Fetch all data ──────────────────────────────────────────────────────────
-
-  const fetchAll = useCallback(async () => {
+  // ── Manual refresh: bust orders cache and re-fetch ────────────────────────
+  const refreshOrders = useCallback(async () => {
     setLoading(true);
     try {
-      const [ordersRes, paymentRes, statusRes, orderTypeRes] = await Promise.all([
-        fetch('http://localhost:8080/api/sales/get-all-orders'),
-        fetch('http://localhost:8080/api/payment-types'),
-        fetch('http://localhost:8080/api/status/types/1'),
-        fetch('http://localhost:8080/api/order-types'),
-      ]);
-
-      const ordersData: Order[]        = await ordersRes.json();
-      const paymentData: PaymentType[] = await paymentRes.json();
-      const statusData: StatusType[]   = await statusRes.json();
-      const orderTypeData: OrderType[] = await orderTypeRes.json();
-
+      const ordersRes = await fetch(`${API_BASE_URL}/api/sales/get-all-orders`);
+      const ordersData: Order[] = await ordersRes.json();
+      appCache.orders = ordersData; // update cache
       setOrders(ordersData);
-
-      const pMap: Record<number, string> = {};
-      paymentData.forEach((p) => { pMap[p.paymentTypeId] = p.paymentType; });
-      setPaymentTypeMap(pMap);
-
-      const sMap: Record<number, string> = {};
-      statusData.forEach((s) => { sMap[s.statusId] = s.statusType; });
-      setStatusTypeMap(sMap);
-
-      setStatusTypeOptions(statusData.map((s) => ({ statusId: s.statusId, statusType: s.statusType })));
-      setPaymentTypes(paymentData.map((p) => ({ label: p.paymentType, value: String(p.paymentTypeId) })));
-      setStatusTypes(statusData.map((s) => ({ label: s.statusType, value: String(s.statusId) })));
-      setOrderTypes(orderTypeData.map((o) => ({ label: o.type, value: String(o.type) })));
     } catch (error) {
-      console.error('Failed to fetch data:', error);
+      console.error('Failed to refresh orders:', error);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchAll(); }, []);
+  // ── Filtered orders (pure local, zero network) ────────────────────────────
 
-  // ── Filtered orders ─────────────────────────────────────────────────────────
-
+  const debouncedOrderCode    = filters.orderCode;
+  const debouncedCustomerCode = filters.customerCode;
   const isCodeSearch = debouncedOrderCode.trim() !== '' || debouncedCustomerCode.trim() !== '';
 
   const filteredOrders = useMemo(() => {
@@ -837,67 +822,60 @@ export function FilterOrderPage() {
 
   const wrappingOrders = useMemo(() => filteredOrders.filter((o) => o.statusId === 3), [filteredOrders]);
 
-  // ── Open view modal ─────────────────────────────────────────────────────────
+  // ── Open view modal ───────────────────────────────────────────────────────
 
   const handleViewOrder = (row: Order) => {
     setViewModalRaw(row);
     setViewModalOrder(toModalOrder(row));
   };
 
-  // ── Action handler ──────────────────────────────────────────────────────────
+  // ── Action handler — patches local state AND cache ────────────────────────
 
   const handleOrderAction = useCallback(async (
-    order: ModalOrder,
-    action: string,
-    statusId?: number,
-    note?: string
+    order: ModalOrder, action: string, statusId?: number, note?: string,
   ): Promise<void> => {
     if (action === 'edit') { console.log('Edit action — wire up navigation if needed.'); return; }
+    if (action === 'special_note') { if (note) console.log(`Special note for ${order.orderCode}: ${note}`); return; }
 
-    if (action === 'special_note') {
-      if (note) console.log(`Special note for ${order.orderCode}: ${note}`);
-      return;
-    }
+    const patchOrder = (o: Order) =>
+      (o.deliveryId ?? o.orderId) === order.deliveryId
+        ? { ...o, statusId: statusId ?? o.statusId, billNo: action === 'wrapping' ? (note ?? o.billNo) : o.billNo }
+        : o;
 
     if (action === 'wrapping' && statusId !== undefined) {
-      setOrders((prev) =>
-        prev.map((o) =>
-          (o.deliveryId ?? o.orderId) === order.deliveryId
-            ? { ...o, statusId: 3, billNo: note ?? o.billNo }
-            : o
-        )
-      );
+      setOrders((prev) => {
+        const next = prev.map(patchOrder);
+        appCache.orders = next; // keep cache in sync
+        return next;
+      });
       return;
     }
 
     if (action === 'status' && statusId !== undefined) {
       const res = await fetch(
-        `http://localhost:8080/api/sales/${order.deliveryId}/status?statusId=${statusId}`,
+        `${API_BASE_URL}/api/sales/${order.deliveryId}/status?statusId=${statusId}`,
         { method: 'PATCH' }
       );
       if (!res.ok) {
         const errText = await res.text();
         throw new Error(errText || `Server error: ${res.status}`);
       }
-      setOrders((prev) =>
-        prev.map((o) =>
-          (o.deliveryId ?? o.orderId) === order.deliveryId ? { ...o, statusId } : o
-        )
-      );
+      setOrders((prev) => {
+        const next = prev.map(patchOrder);
+        appCache.orders = next; // keep cache in sync
+        return next;
+      });
     }
   }, []);
 
-  // ── Shared: save via file picker + move orders to Despatch ─────────────────
+  // ── Shared: save via file picker + move orders to Despatch ───────────────
 
   const saveAndDispatch = useCallback(async (wb: XLSX.WorkBook, suggestedName: string) => {
     let fileHandle: FileSystemFileHandle | null = null;
     try {
       fileHandle = await (window as any).showSaveFilePicker({
         suggestedName,
-        types: [{
-          description: 'Excel Spreadsheet',
-          accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
-        }],
+        types: [{ description: 'Excel Spreadsheet', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }],
       });
     } catch (err: any) {
       if (err?.name === 'AbortError') { setPrinting(false); setToast(null); return; }
@@ -914,22 +892,22 @@ export function FilterOrderPage() {
     const results = await Promise.allSettled(
       wrappingOrders.map((o) => {
         const id = o.deliveryId ?? o.orderId;
-        return fetch(`http://localhost:8080/api/sales/${id}/status?statusId=4`, { method: 'PATCH' });
+        return fetch(`${API_BASE_URL}/api/sales/${id}/status?statusId=4`, { method: 'PATCH' });
       })
     );
 
-    const failed = results.filter((r) => r.status === 'rejected').length;
-    const refreshed = await fetch('http://localhost:8080/api/sales/get-all-orders');
-    setOrders(await refreshed.json());
+    // Refresh orders after bulk dispatch and update cache
+    await refreshOrders();
 
+    const failed = results.filter((r) => r.status === 'rejected').length;
     if (failed === 0) {
       showToast('success', `✓ Excel saved & ${wrappingOrders.length} orders moved to Despatch.`);
     } else {
       showToast('error', `Excel saved, but ${failed} status update(s) failed. Please retry.`);
     }
-  }, [wrappingOrders]);
+  }, [wrappingOrders, refreshOrders]);
 
-  // ── Print Wrapping ──────────────────────────────────────────────────────────
+  // ── Print Wrapping ────────────────────────────────────────────────────────
 
   const handlePrintWrapping = () => {
     if (wrappingOrders.length === 0) {
@@ -939,13 +917,11 @@ export function FilterOrderPage() {
     setShowDeliveryModal(true);
   };
 
-  // ── Export: Domex ───────────────────────────────────────────────────────────
+  // ── Export: Domex ─────────────────────────────────────────────────────────
 
   const handleDomexExport = async () => {
-    setShowDeliveryModal(false);
-    setPrinting(true);
+    setShowDeliveryModal(false); setPrinting(true);
     showToast('loading', 'Preparing Domex Excel file...');
-
     try {
       const wsData = [
         ['TrackingNumber', 'Reference', 'PackageDescription', 'ReceiverName', 'ReceiverAddress', 'ReceiverCity', 'ReceiverContactNo', 'NoOfPcs', 'Kilo', 'Gram', 'Amount', 'Exchange', 'Remark'],
@@ -953,20 +929,21 @@ export function FilterOrderPage() {
           const totalGrams = parseFloat(o.weight ?? '0') || 0;
           const kilo = Math.floor(totalGrams / 1000);
           const gram  = Math.round(totalGrams % 1000);
+          const paymentLabel = paymentTypeMap[o.paymentTypeId]?.toLowerCase() ?? '';
+          const codAmount = paymentLabel.includes('card') ? 0 : (o.totalOrderPrice ?? 0);
           return [
             o.billNo ?? '', o.orderId ?? '', '0',
             o.customerName ?? '', o.address ?? '', '0',
             `${o.phoneOne ?? ''}${o.phoneTwo ? ` / ${o.phoneTwo}` : ' /'}`,
-            1, kilo, gram, o.totalOrderPrice ?? 0, '0', '0',
+            1, kilo, gram, codAmount, '0', '0',
           ];
         }),
       ];
-
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(wsData);
       ws['!cols'] = [
         { wch: 18 }, { wch: 12 }, { wch: 20 }, { wch: 22 }, { wch: 30 },
-        { wch: 16 }, { wch: 16 }, { wch: 8 },  { wch: 8 },  { wch: 8 },
+        { wch: 16 }, { wch: 16 }, { wch: 8  }, { wch: 8  }, { wch: 8  },
         { wch: 12 }, { wch: 10 }, { wch: 20 },
       ];
       XLSX.utils.book_append_sheet(wb, ws, 'Wrapping Orders');
@@ -979,13 +956,11 @@ export function FilterOrderPage() {
     }
   };
 
-  // ── Export: City Pack ───────────────────────────────────────────────────────
+  // ── Export: City Pack ─────────────────────────────────────────────────────
 
   const handleCityPackExport = async () => {
-    setShowDeliveryModal(false);
-    setPrinting(true);
+    setShowDeliveryModal(false); setPrinting(true);
     showToast('loading', 'Preparing City Pack Excel file...');
-
     try {
       const headerRow1 = [
         'CITYPAK TRACKING', 'YOUR REFERENCE',
@@ -1007,7 +982,6 @@ export function FilterOrderPage() {
         'ITEM TYPE*', 'NUMBER OF PIECES*', 'DESCRIPTION',
         'IS CASH ON DELIVERY?*', 'COLLECTION AMOUNT',
       ];
-
       const dataRows = wrappingOrders.map((o) => {
         const totalGrams = Math.round(parseFloat(o.weight ?? '0') || 0);
         return [
@@ -1023,7 +997,6 @@ export function FilterOrderPage() {
           o.totalOrderPrice ?? 0,
         ];
       });
-
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet([headerRow1, headerRow2, ...dataRows]);
       ws['!cols'] = [
@@ -1046,7 +1019,7 @@ export function FilterOrderPage() {
     }
   };
 
-  // ── Table columns ───────────────────────────────────────────────────────────
+  // ── Table columns ─────────────────────────────────────────────────────────
 
   const columns: Column<Order>[] = [
     { header: 'Order Code',   accessor: (row) => row.billNo || '-', className: 'font-medium text-teal-600' },
@@ -1091,7 +1064,7 @@ export function FilterOrderPage() {
     },
   ];
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="p-6 h-[calc(100vh-4rem)] flex flex-col relative">
@@ -1140,12 +1113,24 @@ export function FilterOrderPage() {
 
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Advanced Order Filter</h1>
-        {wrappingOrders.length > 0 && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-700">
-            <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-            {wrappingOrders.length} Wrapping order{wrappingOrders.length > 1 ? 's' : ''} ready
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {wrappingOrders.length > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+              {wrappingOrders.length} Wrapping order{wrappingOrders.length > 1 ? 's' : ''} ready
+            </span>
+          )}
+          {/* Manual refresh button — lets users force a fresh fetch when needed */}
+          <button
+            onClick={refreshOrders}
+            disabled={loading}
+            title="Refresh orders"
+            className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <RefreshCwIcon className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <FilterBar

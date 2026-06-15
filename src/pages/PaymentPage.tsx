@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, Column } from '../components/DataTable';
+import { API_BASE_URL } from '../config';
 
 interface BusinessProfile {
   bussinessProfileId: number;
@@ -82,7 +83,7 @@ export function PaymentPage() {
 
   // Fetch payment status types once on mount
   useEffect(() => {
-    fetch('http://localhost:8080/api/status/types/2')
+    fetch(`${API_BASE_URL}/api/status/types/2`)
       .then((res) => {
         if (!res.ok) throw new Error(`Status API error: ${res.status}`);
         return res.json() as Promise<PaymentStatusType[]>;
@@ -93,7 +94,7 @@ export function PaymentPage() {
 
   // Fetch business profiles once on mount
   useEffect(() => {
-    fetch('http://localhost:8080/api/config/business-profiles')
+    fetch(`${API_BASE_URL}/api/config/business-profiles`)
       .then((res) => {
         if (!res.ok) throw new Error(`Profile API error: ${res.status}`);
         return res.json() as Promise<BusinessProfile[]>;
@@ -104,7 +105,7 @@ export function PaymentPage() {
 
   // Fetch payment types once on mount
   useEffect(() => {
-    fetch('http://localhost:8080/api/payment-types')
+    fetch(`${API_BASE_URL}/api/payment-types`)
       .then((res) => {
         if (!res.ok) throw new Error(`Payment types API error: ${res.status}`);
         return res.json() as Promise<PaymentType[]>;
@@ -145,7 +146,7 @@ export function PaymentPage() {
     setError(null);
     try {
       const res = await fetch(
-        `http://localhost:8080/api/payment-report?from=${from}&to=${to}`
+        `${API_BASE_URL}/api/payment-report?from=${from}&to=${to}`
       );
       if (!res.ok) throw new Error(`Server error: ${res.status} ${res.statusText}`);
       const data: PaymentRecord[] = await res.json();
@@ -167,12 +168,12 @@ export function PaymentPage() {
       const wideFrom = '2020-01-01';
       const wideTo = new Date().toISOString().split('T')[0];
       const res = await fetch(
-        `http://localhost:8080/api/payment-report?from=${wideFrom}&to=${wideTo}`
+        `${API_BASE_URL}/api/payment-report?from=${wideFrom}&to=${wideTo}`
       );
       if (!res.ok) throw new Error(`Server error: ${res.status} ${res.statusText}`);
       const data: PaymentRecord[] = await res.json();
       const matched = data.filter((p) =>
-        p.orderCode.toLowerCase().includes(orderCode.toLowerCase())
+        p.orderCode?.toLowerCase().includes(orderCode.toLowerCase())
       );
       setPayments(matched);
     } catch (err) {
@@ -206,7 +207,7 @@ export function PaymentPage() {
   const updatePaymentStatus = async (orderId: number, statusId: number) => {
     try {
       const res = await fetch(
-        `http://localhost:8080/api/payment-report/status-by-order?orderId=${orderId}&statusId=${statusId}`,
+        `${API_BASE_URL}/api/payment-report/status-by-order?orderId=${orderId}&statusId=${statusId}`,
         { method: 'PUT' }
       );
       if (!res.ok) throw new Error('Failed to update status');
@@ -264,49 +265,51 @@ export function PaymentPage() {
     },
     {
       header: 'Customer No.',
-      accessor: (row) => row.customerNumber.trim(),
+      accessor: (row) => row.customerNumber?.trim() ?? '—',
     },
     {
       header: 'COD',
-      accessor: (row) => `${row.cod.toFixed(2)}`,
+      accessor: (row) => row.cod != null ? row.cod.toFixed(2) : '—',
     },
     {
       header: 'Sub Total',
-      accessor: (row) => `${row.subTotalPrice.toFixed(2)}`,
+      accessor: (row) => row.subTotalPrice != null ? row.subTotalPrice.toFixed(2) : '—',
     },
     {
       header: 'Delivery Fee',
-      accessor: (row) => `${row.deliveryFee.toFixed(2)}`,
+      accessor: (row) => row.deliveryFee != null ? row.deliveryFee.toFixed(2) : '—',
     },
     {
       header: 'Total Amount',
-      accessor: (row) => `${row.totalOrderPrice.toFixed(2)}`,
+      accessor: (row) => row.totalOrderPrice != null ? row.totalOrderPrice.toFixed(2) : '—',
       className: 'font-semibold',
     },
     {
-      header: 'Payment Type',
-      accessor: (row) =>
-        paymentTypeMap[row.paymentTypeId] ?? `Type ${row.paymentTypeId}`,
-    },
-    {
-      header: 'Payment Status',
+      header: 'Current Status',
       accessor: (row) => {
-        const s = statusMap[row.statusId] ?? {
-          label: `Status ${row.statusId}`,
-          className: 'bg-gray-100 text-gray-800',
-        };
+        const status = statusMap[row.statusId];
+        if (!status) return <span className="text-gray-400 text-xs">—</span>;
+        const isNotPaid = status.label.toLowerCase().includes('not paid');
+        const isPaid = !isNotPaid && status.label.toLowerCase().includes('paid');
         return (
-          <span
-            className={`inline-flex rounded-full px-2 text-xs font-semibold leading-5 ${s.className}`}
-          >
-            {s.label}
+          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+            isNotPaid
+              ? 'bg-red-100 text-red-700 ring-1 ring-red-300'
+              : isPaid
+              ? 'bg-green-100 text-green-700 ring-1 ring-green-300'
+              : 'bg-gray-100 text-gray-600 ring-1 ring-gray-300'
+          }`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${
+              isNotPaid ? 'bg-red-500' : isPaid ? 'bg-green-500' : 'bg-gray-400'
+            }`} />
+            {status.label}
           </span>
         );
       },
     },
     {
       header: 'Date',
-      accessor: (row) => row.createdDate.split('T')[0],
+      accessor: (row) => row.createdDate?.split('T')[0] ?? '—',
     },
     {
       header: 'Action',

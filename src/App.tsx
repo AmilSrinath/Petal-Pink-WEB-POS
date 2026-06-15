@@ -45,6 +45,20 @@ import { ManageOrderTypePage } from './pages/configurations/ManageOrderTypePage'
 import { ManageStatusPage } from './pages/configurations/ManageStatusPage';
 import { ManageBusinessProfilePage } from './pages/configurations/ManageBusinessProfilePage';
 import { ManageStockAdjPage } from './pages/configurations/ManageStockAdjPage';
+import { ProductionPage } from './pages/inventory/ProductionPage';
+
+import { EmployeeDesignationPage } from './pages/employee/EmployeeDesignationPage';
+import { EmployeeManagementPage } from './pages/employee/EmployeeManagementPage';
+import { EmployeeTitlePage } from './pages/employee/EmployeeTitlePage';
+import { UserAccountManagementPage } from './pages/employee/UserAccountManagementPage';
+import { UserRoleManagementPage } from './pages/employee/UserRoleManagementPage';
+
+import { WebsiteDashboardPage } from './pages/website/WebsiteDashboardPage';
+import { ManageWebBannersPage } from './pages/website/ManageWebBannersPage';
+import { ManageWebCategoriesPage } from './pages/website/ManageWebCategoriesPage';
+import { ManageWebOrdersPage } from './pages/website/ManageWebOrdersPage';
+import { ManageWebProductsPage } from './pages/website/ManageWebProductsPage';
+import { ManageWebPromotionsPage } from './pages/website/ManageWebPromotionsPage';
 
 export function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -117,6 +131,7 @@ export function App() {
             <Route path="/inventory/payment-type" element={<TopBar title="Payment Types" userName={userName} />} />
             <Route path="/inventory/printer-type" element={<TopBar title="Printer Configuration" userName={userName} />} />
             <Route path="/inventory/config-tables" element={<TopBar title="Configuration Tables" userName={userName} />} />
+            <Route path="/inventory/production" element={<TopBar title="Production" userName={userName} />} />
             {/* <Route path="/inventory/main-table-location" element={<TopBar title="Main Table Locations" userName={userName} />} /> */}
             <Route path="/inventory/sub-table-location" element={<TopBar title="Sub-Table Locations" userName={userName} />} />
             <Route path="/reports/duration-sales" element={<TopBar title="Duration Sales Report" userName={userName} />} />
@@ -129,6 +144,14 @@ export function App() {
             <Route path="/configurations/manage-status" element={<TopBar title="Manage Status" userName={userName} />} />
             <Route path="/configurations/manage-business-profile" element={<TopBar title="Manage Business Profile" userName={userName} />} />
             <Route path="/configurations/stock-adj" element={<TopBar title="Stock Adjustment" userName={userName} />} />
+
+            <Route path="/website/web-dashboard" element={<TopBar title="Website Dashboard" userName={userName} />} />
+            <Route path="/website/manage-web-banners" element={<TopBar title="Manage Banners" userName={userName} />} />
+            <Route path="/website/manage-web-categories" element={<TopBar title="Manage Categories" userName={userName} />} />
+            <Route path="/website/manage-web-orders" element={<TopBar title="Manage Orders" userName={userName} />} />
+            <Route path="/website/manage-web-products" element={<TopBar title="Manage Products" userName={userName} />} />
+            <Route path="/website/manage-web-promotions" element={<TopBar title="Manage Promotions" userName={userName} />} />
+
             <Route path="*" element={<TopBar title="Petal Pink POS System" userName={userName} />} />
           </Routes>
 
@@ -161,6 +184,7 @@ export function App() {
               <Route path="/inventory/config-tables" element={<ConfigTablesPage />} />
               <Route path="/inventory/main-table-location" element={<MainTableLocationPage />} />
               <Route path="/inventory/sub-table-location" element={<SubTableLocationPage />} />
+              <Route path="/inventory/production" element={<ProductionPage />} />
               <Route path="/reports/duration-sales" element={<DurationSalesReportPage />} />
 
               {/* Configuration Routes */}
@@ -184,6 +208,44 @@ export function App() {
               <Route path="/property-management" element={<PlaceholderPage title="Property Management" />} />
               <Route path="/reports" element={<PlaceholderPage title="Reports" />} />
               <Route path="/configurations" element={<PlaceholderPage title="Configurations" />} />
+
+              {/* Employee */}
+              <Route path="/employee/employee-manage" element={<EmployeeManagementPage />} />
+              <Route path="/employee/user-account-manage" element={<UserAccountManagementPage />} />
+              <Route path="/employee/user-role-manage" element={<UserRoleManagementPage />} />
+              <Route path="/employee/employee-designation" element={<EmployeeDesignationPage />} />
+              <Route path="/employee/employee-title" element={<EmployeeTitlePage />} />
+
+
+              <Route
+                path="/website/web-dashboard"
+                element={<WebsiteDashboardPage />}
+              />
+
+              <Route
+                path="/website/manage-web-banners"
+                element={<ManageWebBannersPage />}
+              />
+
+              <Route
+                path="/website/manage-web-categories"
+                element={<ManageWebCategoriesPage />}
+              />
+
+              <Route
+                path="/website/manage-web-orders"
+                element={<ManageWebOrdersPage />}
+              />
+
+              <Route
+                path="/website/manage-web-products"
+                element={<ManageWebProductsPage />}
+              />
+
+              <Route
+                path="/website/manage-web-promotions"
+                element={<ManageWebPromotionsPage />}
+              />
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

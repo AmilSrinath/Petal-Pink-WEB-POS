@@ -4,6 +4,7 @@ import {
   SearchIcon, PlusIcon, MinusIcon, TrashIcon, PackageIcon,
 } from 'lucide-react';
 import { DataTable, Column } from '../../components/DataTable';
+import { API_BASE_URL } from '../../config';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -202,7 +203,7 @@ function convertToBaseUnit(qty: number, unitTypeId: number): { qty: number; unit
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const BASE = 'http://localhost:8080';
+const BASE = `${API_BASE_URL}`;
 
 async function fetchJson(url: string) {
   const res = await fetch(url);
@@ -504,9 +505,9 @@ export function GRNListPage() {
   };
 
   const columns: Column<any>[] = [
-    { header: 'GRN ID', accessor: 'grnId' },
+    // { header: 'GRN ID', accessor: 'grnId' },
     { header: 'Invoice No', accessor: 'invoiceNo' },
-    { header: 'Supplier ID', accessor: 'supplierId' },
+    { header: 'Supplier', accessor: 'supplierName' },
     { header: 'Total Price', accessor: (row) => `Rs. ${row.totalPrice?.toFixed(2) ?? '0.00'}` },
     { header: 'Discount', accessor: (row) => `Rs. ${row.totalDiscount?.toFixed(2) ?? '0.00'}` },
     { header: 'Date', accessor: 'createdDate' },

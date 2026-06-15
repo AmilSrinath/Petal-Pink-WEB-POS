@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { API_BASE_URL } from '../config';
 import {
   SearchIcon,
   PlusIcon,
@@ -138,6 +139,8 @@ interface DeliveryOrderResponse {
   totalOrderPrice: number;
   paidAmount: number;
   paymentTypeId: number;
+  courierBagId:   number | null;
+  courierBagName: string | null;
 }
 
 interface OrderTypeOption {
@@ -992,6 +995,99 @@ const OrderActionModal = ({
     return undefined;
   };
 
+  // Add this utility function outside the component
+    const printThermalLabel = (trackingCode: string, customerName: string) => {
+      const labelHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            @page {
+              size: 50mm 25mm;
+              margin: 0;
+            }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+              width: 50mm;
+              height: 25mm;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              font-family: Arial, sans-serif;
+              padding: 2mm;
+            }
+            .brand {
+              font-size: 9pt;
+              font-weight: bold;
+              margin-bottom: 1mm;
+              letter-spacing: 1px;
+            }
+            .barcode-area {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              width: 100%;
+            }
+            svg {
+              width: 44mm;
+              height: 12mm;
+            }
+            .tracking-text {
+              font-size: 10pt;
+              margin-top: 0.5mm;
+              letter-spacing: 1.5px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="brand">Petal Pink</div>
+          <div class="barcode-area">
+            <svg id="barcode"></svg>
+            <div class="tracking-text">${trackingCode}</div>
+          </div>
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+          <script>
+            JsBarcode("#barcode", "${trackingCode}", {
+              format: "CODE128",
+              width: 2,
+              height: 40,
+              displayValue: false,
+              margin: 0,
+            });
+            window.onload = () => {
+              setTimeout(() => {
+                window.print();
+                window.onafterprint = () => window.close();
+              }, 300);
+            };
+          </script>
+        </body>
+        </html>
+      `;
+
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.top = '-9999px';
+      iframe.style.left = '-9999px';
+      iframe.style.width = '50mm';
+      iframe.style.height = '25mm';
+      document.body.appendChild(iframe);
+
+      const doc = iframe.contentWindow?.document;
+      if (!doc) return;
+      doc.open();
+      doc.write(labelHtml);
+      doc.close();
+
+      // Cleanup after printing
+      iframe.onload = () => {
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 5000);
+      };
+    };
+
   const handleActionClick = async (btn: ActionButton) => {
     if (isButtonDisabled(btn)) return;
 
@@ -1005,7 +1101,7 @@ const OrderActionModal = ({
       setRemarkError(null);
       setIsLoadingRemark(true);
       try {
-        const res = await fetch(`http://localhost:8080/api/sales/${order.deliveryId}/remark`);
+        const res = await fetch(`${API_BASE_URL}/api/sales/${order.deliveryId}/remark`);
         if (!res.ok) throw new Error(`Status ${res.status}`);
         const text = await res.text();
         setRemarkText(text ?? '');
@@ -1024,6 +1120,7 @@ const OrderActionModal = ({
       return;
     }
 
+    // In handleActionClick, inside the statusId === 3 block:
     if (btn.action === 'status' && btn.statusId === 3) {
       setLoadingStatusId(3);
       setActionError(null);
@@ -1031,7 +1128,7 @@ const OrderActionModal = ({
         let trackingCode = order.orderCode?.trim() ?? '';
         if (autoGenerateId) {
           const res = await fetch(
-            `http://localhost:8080/api/sales/${order.deliveryId}/generate-tracking`,
+            `${API_BASE_URL}/api/sales/${order.deliveryId}/generate-tracking`,
             { method: 'POST' }
           );
           if (!res.ok) {
@@ -1041,7 +1138,12 @@ const OrderActionModal = ({
           trackingCode = await res.text();
         }
         await onAction(order, 'wrapping', 3, trackingCode);
-        if (isPrint) window.print();
+
+        // ← Replace window.print() with this:
+        if (isPrint) {
+          printThermalLabel(trackingCode, order.customerName);
+        }
+
         onClose();
       } catch (err: any) {
         setActionError(err.message ?? 'Failed to process wrapping');
@@ -1074,7 +1176,7 @@ const OrderActionModal = ({
     setIsSavingRemark(true);
     setRemarkError(null);
     try {
-      const res = await fetch(`http://localhost:8080/api/sales/${order.deliveryId}/remark`, {
+      const res = await fetch(`${API_BASE_URL}/api/sales/${order.deliveryId}/remark`, {
         method: 'PUT',
         headers: { 'Content-Type': 'text/plain' },
         body: remarkText,
@@ -1301,7 +1403,7 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
     setOrderItems([]);
     setItemsError(null);
     setLoadingItems(true);
-    fetch(`http://localhost:8080/api/sales/orders/${order.orderId}/items`)
+    fetch(`${API_BASE_URL}/api/sales/orders/${order.orderId}/items`)
       .then((res) => {
         if (!res.ok) throw new Error(`Status ${res.status}`);
         return res.json();
@@ -1599,8 +1701,8 @@ export function SalesPage() {
     const fetchFeatureConfig = async () => {
       try {
         const [autoIdRes, printRes] = await Promise.all([
-          fetch('http://localhost:8080/api/config/auto-generate-id'),
-          fetch('http://localhost:8080/api/config/is-print'),
+          fetch(`${API_BASE_URL}/api/config/auto-generate-id`),
+          fetch(`${API_BASE_URL}/api/config/is-print`),
         ]);
         if (autoIdRes.ok) {
           const val = await autoIdRes.text();
@@ -1622,7 +1724,7 @@ export function SalesPage() {
   useEffect(() => {
     const fetchCourierBagData = async () => {
       try {
-        const configRes = await fetch('http://localhost:8080/api/config/courier-bags/config');
+        const configRes = await fetch(`${API_BASE_URL}/api/config/courier-bags/config`);
         if (!configRes.ok) return;
         const configData = await configRes.json();
         const isEnabled = configData?.isShowCourierBags === 1;
@@ -1630,7 +1732,7 @@ export function SalesPage() {
 
         if (isEnabled) {
           setIsLoadingCourierBags(true);
-          const bagsRes = await fetch('http://localhost:8080/api/items/courier-bags');
+          const bagsRes = await fetch(`${API_BASE_URL}/api/items/courier-bags`);
           if (bagsRes.ok) {
             const bagsData: CourierBag[] = await bagsRes.json();
             setCourierBags(bagsData.filter(b => b.status === 1));
@@ -1651,8 +1753,8 @@ export function SalesPage() {
     const fetchDeliveryConfig = async () => {
       try {
         const [feeRes, perKgRes] = await Promise.all([
-          fetch('http://localhost:8080/api/config/delivery-fee'),
-          fetch('http://localhost:8080/api/config/add-cost-per-kg'),
+          fetch(`${API_BASE_URL}/api/config/delivery-fee`),
+          fetch(`${API_BASE_URL}/api/config/add-cost-per-kg`),
         ]);
         if (feeRes.ok) {
           const feeText = await feeRes.text();
@@ -1675,8 +1777,8 @@ export function SalesPage() {
     const fetchDropdowns = async () => {
       try {
         const [otRes, ptRes] = await Promise.all([
-          fetch('http://localhost:8080/api/order-types'),
-          fetch('http://localhost:8080/api/payment-types'),
+          fetch(`${API_BASE_URL}/api/order-types`),
+          fetch(`${API_BASE_URL}/api/payment-types`),
         ]);
         if (otRes.ok) {
           const otData: OrderTypeOption[] = await otRes.json();
@@ -1690,14 +1792,14 @@ export function SalesPage() {
           setPaymentTypeOptions(active);
           if (active.length > 0) setPaymentType(active[0].paymentType);
         }
-        const stRes = await fetch('http://localhost:8080/api/status/types/1');
+        const stRes = await fetch(`${API_BASE_URL}/api/status/types/1`);
         if (stRes.ok) {
           const stData: StatusTypeOption[] = await stRes.json();
           setStatusTypes(stData.filter((s) => s.status === 1));
         }
 
         setIsLoadingProfiles(true);
-        const bpRes = await fetch('http://localhost:8080/api/config/business-profiles');
+        const bpRes = await fetch(`${API_BASE_URL}/api/config/business-profiles`);
         if (bpRes.ok) {
           const bpData: BusinessProfile[] = await bpRes.json();
           const active = bpData.filter((p) => p.status === 1);
@@ -1748,8 +1850,8 @@ export function SalesPage() {
     setIsLoadingItems(true);
     try {
       const [itemsRes, catsRes] = await Promise.all([
-        fetch('http://localhost:8080/api/items'),
-        fetch('http://localhost:8080/api/sub-item-category'),
+        fetch(`${API_BASE_URL}/api/items`),
+        fetch(`${API_BASE_URL}/api/sub-item-category`),
       ]);
 
       if (!itemsRes.ok) throw new Error(`Failed to fetch items: ${itemsRes.status}`);
@@ -1798,7 +1900,7 @@ export function SalesPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const url = `http://localhost:8080/api/sales/delivery-orders?startDate=${startDate}&endDate=${endDate}`;
+      const url = `${API_BASE_URL}/api/sales/delivery-orders?startDate=${startDate}&endDate=${endDate}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Server responded with status ${res.status}`);
       const data: DeliveryOrderResponse[] = await res.json();
@@ -1819,7 +1921,7 @@ export function SalesPage() {
   const fetchAllOrdersForSearch = useCallback(async () => {
     if (allOrdersRef.current.length > 0) return;
     try {
-      const url = `http://localhost:8080/api/sales/delivery-orders?startDate=2020-01-01&endDate=${getTodayStr()}`;
+      const url = `${API_BASE_URL}/api/sales/delivery-orders?startDate=2020-01-01&endDate=${getTodayStr()}`;
       const res = await fetch(url);
       if (!res.ok) return;
       const data: DeliveryOrderResponse[] = await res.json();
@@ -2025,7 +2127,7 @@ export function SalesPage() {
     setIsCheckingStock(true);
 
     try {
-      const res = await fetch('http://localhost:8080/api/stock-check/item', {
+      const res = await fetch(`${API_BASE_URL}/api/stock-check/item`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemId: selectedItem.itemId, quantity: qty }),
@@ -2162,8 +2264,8 @@ export function SalesPage() {
     try {
       const isUpdate = editingDeliveryId !== null;
       const url = isUpdate
-        ? 'http://localhost:8080/api/orders/update'
-        : 'http://localhost:8080/api/orders/create';
+        ? `${API_BASE_URL}/api/orders/update`
+        : `${API_BASE_URL}/api/orders/create`;
       const method = isUpdate ? 'PUT' : 'POST';
 
       const payload = {
@@ -2264,7 +2366,7 @@ export function SalesPage() {
 
     try {
       const detailRes = await fetch(
-        `http://localhost:8080/api/sales/delivery-orders?startDate=2020-01-01&endDate=${getTodayStr()}`
+        `${API_BASE_URL}/api/sales/delivery-orders?startDate=2020-01-01&endDate=${getTodayStr()}`
       );
       if (detailRes.ok) {
         const allData: DeliveryOrderResponse[] = await detailRes.json();
@@ -2280,6 +2382,26 @@ export function SalesPage() {
             (pt) => pt.paymentTypeId === found.paymentTypeId
           );
           if (matchedPt) setPaymentType(matchedPt.paymentType);
+
+          // ── Step 8: restore courier bag ──────────────────────────
+          if (found.courierBagId && showCourierBags) {
+            const matchedBag = courierBags.find(b => b.itemId === found.courierBagId);
+            if (matchedBag) {
+              setSelectedCourierBag(matchedBag);
+            } else {
+              setSelectedCourierBag({
+                itemId:              found.courierBagId,
+                itemBarCode:         0,
+                itemName:            found.courierBagName ?? '',
+                itemCodePrefix:      '',
+                subItemCategoryName: '',
+                status:              1,
+              });
+            }
+          } else {
+            setSelectedCourierBag(null);
+          }
+          // ─────────────────────────────────────────────────────────
         }
       }
     } catch (err) {
@@ -2288,7 +2410,7 @@ export function SalesPage() {
 
     try {
       const itemsRes = await fetch(
-        `http://localhost:8080/api/sales/orders/${order.orderId}/items`
+        `${API_BASE_URL}/api/sales/orders/${order.orderId}/items`
       );
       if (!itemsRes.ok) throw new Error(`Status ${itemsRes.status}`);
       const orderItems: OrderDetailItem[] = await itemsRes.json();
@@ -2329,7 +2451,7 @@ export function SalesPage() {
 
   const handleUpdateOrderStatus = useCallback(async (order: Order, statusId: number): Promise<void> => {
     const res = await fetch(
-      `http://localhost:8080/api/sales/${order.deliveryId}/status?statusId=${statusId}`,
+      `${API_BASE_URL}/api/sales/${order.deliveryId}/status?statusId=${statusId}`,
       { method: 'PATCH' }
     );
     if (!res.ok) {

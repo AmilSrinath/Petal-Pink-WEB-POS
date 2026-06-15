@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { DataTable, Column } from '../../components/DataTable';
 import { Trash2, Pencil, X, Check, Loader2, Plus } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
-const API_BASE = 'http://localhost:8080/api/courier-branches';
-const COMPANIES_API = 'http://localhost:8080/api/courier-companies';
+const API_BASE = `${API_BASE_URL}/api/courier-branches`;
+const COMPANIES_API = `${API_BASE_URL}/api/courier-companies`;
 
 interface CourierBranch {
   branchId: number;

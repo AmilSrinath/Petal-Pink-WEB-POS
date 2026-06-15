@@ -3,39 +3,30 @@ import { DataTable, Column } from '../../components/DataTable';
 import { PlusIcon, EditIcon, TrashIcon } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
 
-interface MainCategory {
-  mainItemCategoryId: number;
-  mainItemCategoryName: string;
-  imagePath: string | null;
+interface UserRole {
+  roleId: number;
+  roleName: string;
+  description: string;
   status: number;
-  userId: number | null;
-  visible: number | null;
-  editedBy: number | null;
 }
 
 interface FormData {
-  mainItemCategoryId?: number;
-  mainItemCategoryName: string;
-  imagePath: string;
+  roleId?: number;
+  roleName: string;
+  description: string;
   status: number;
-  userId: number;
-  visible: number;
-  editedBy: number;
 }
 
-const BASE_URL = `${API_BASE_URL}/api/categories`;
+const BASE_URL = `${API_BASE_URL}/api/user-roles`;
 
 const defaultForm: FormData = {
-  mainItemCategoryName: '',
-  imagePath: '',
+  roleName: '',
+  description: '',
   status: 1,
-  userId: 1,
-  visible: 1,
-  editedBy: 1,
 };
 
-export function ItemMainCategoryPage() {
-  const [categories, setCategories] = useState<MainCategory[]>([]);
+export function UserRoleManagementPage() {
+  const [roles, setRoles] = useState<UserRole[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState<FormData>(defaultForm);
   const [isEditing, setIsEditing] = useState(false);
@@ -43,17 +34,16 @@ export function ItemMainCategoryPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchCategories();
+    fetchRoles();
   }, []);
 
-  const fetchCategories = async () => {
+  const fetchRoles = async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(BASE_URL);
-      if (!res.ok) throw new Error('Failed to fetch categories');
-      const data = await res.json();
-      setCategories(data);
+      if (!res.ok) throw new Error('Failed to fetch user roles');
+      setRoles(await res.json());
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -62,7 +52,7 @@ export function ItemMainCategoryPage() {
   };
 
   const handleSubmit = async () => {
-    if (!formData.mainItemCategoryName.trim()) return;
+    if (!formData.roleName.trim()) return;
     setError(null);
     try {
       const method = isEditing ? 'PUT' : 'POST';
@@ -71,35 +61,32 @@ export function ItemMainCategoryPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
-      if (!res.ok) throw new Error(`Failed to ${isEditing ? 'update' : 'create'} category`);
-      await fetchCategories();
+      if (!res.ok) throw new Error(`Failed to ${isEditing ? 'update' : 'create'} role`);
+      await fetchRoles();
       resetForm();
     } catch (err: any) {
       setError(err.message);
     }
   };
 
-  const handleEdit = (category: MainCategory) => {
+  const handleEdit = (role: UserRole) => {
     setFormData({
-      mainItemCategoryId: category.mainItemCategoryId,
-      mainItemCategoryName: category.mainItemCategoryName,
-      imagePath: category.imagePath || '',
-      status: category.status,
-      userId: category.userId || 1,
-      visible: category.visible || 1,
-      editedBy: category.editedBy || 1,
+      roleId: role.roleId,
+      roleName: role.roleName,
+      description: role.description,
+      status: role.status,
     });
     setIsEditing(true);
     setShowForm(true);
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete this category?')) return;
+    if (!window.confirm('Are you sure you want to delete this role?')) return;
     setError(null);
     try {
       const res = await fetch(`${BASE_URL}/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete category');
-      await fetchCategories();
+      if (!res.ok) throw new Error('Failed to delete role');
+      await fetchRoles();
     } catch (err: any) {
       setError(err.message);
     }
@@ -111,8 +98,9 @@ export function ItemMainCategoryPage() {
     setShowForm(false);
   };
 
-  const columns: Column<MainCategory>[] = [
-    { header: 'Category Name', accessor: 'mainItemCategoryName' },
+  const columns: Column<UserRole>[] = [
+    { header: 'Role Name', accessor: 'roleName' },
+    { header: 'Description', accessor: 'description' },
     {
       header: 'Status',
       accessor: (row) => (
@@ -130,7 +118,7 @@ export function ItemMainCategoryPage() {
           <button onClick={() => handleEdit(row)} className="text-blue-600 hover:text-blue-800">
             <EditIcon className="h-4 w-4" />
           </button>
-          <button onClick={() => handleDelete(row.mainItemCategoryId)} className="text-red-600 hover:text-red-800">
+          <button onClick={() => handleDelete(row.roleId)} className="text-red-600 hover:text-red-800">
             <TrashIcon className="h-4 w-4" />
           </button>
         </div>
@@ -142,50 +130,47 @@ export function ItemMainCategoryPage() {
     <div className="flex-1 overflow-auto">
       <div className="space-y-6 p-6">
 
-        {/* Header */}
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">Main Categories</h2>
+          <h2 className="text-2xl font-bold text-gray-900">User Role Management</h2>
           <button
             onClick={() => { resetForm(); setShowForm(true); }}
             className="flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-teal-700"
           >
             <PlusIcon className="h-4 w-4" />
-            Add Category
+            Add Role
           </button>
         </div>
 
-        {/* Error Banner */}
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         )}
 
-        {/* Form */}
         {showForm && (
           <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
             <h3 className="mb-4 text-lg font-semibold text-gray-900">
-              {isEditing ? 'Edit Category' : 'Add New Category'}
+              {isEditing ? 'Edit Role' : 'Add New Role'}
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Category Name</label>
+                <label className="block text-sm font-medium text-gray-700">Role Name</label>
                 <input
                   type="text"
-                  value={formData.mainItemCategoryName}
-                  onChange={(e) => setFormData({ ...formData, mainItemCategoryName: e.target.value })}
+                  value={formData.roleName}
+                  onChange={(e) => setFormData({ ...formData, roleName: e.target.value })}
                   className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                  placeholder="Enter category name"
+                  placeholder="e.g. Supervisor, Cashier"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Image Path</label>
-                <input
-                  type="text"
-                  value={formData.imagePath}
-                  onChange={(e) => setFormData({ ...formData, imagePath: e.target.value })}
+                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  rows={3}
                   className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
-                  placeholder="Enter image path (optional)"
+                  placeholder="Describe the role's responsibilities"
                 />
               </div>
               <div>
@@ -204,7 +189,7 @@ export function ItemMainCategoryPage() {
                   onClick={handleSubmit}
                   className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
                 >
-                  {isEditing ? 'Update Category' : 'Add Category'}
+                  {isEditing ? 'Update Role' : 'Add Role'}
                 </button>
                 <button
                   onClick={resetForm}
@@ -217,11 +202,10 @@ export function ItemMainCategoryPage() {
           </div>
         )}
 
-        {/* Table */}
         {loading ? (
-          <div className="py-12 text-center text-sm text-gray-500">Loading categories...</div>
+          <div className="py-12 text-center text-sm text-gray-500">Loading roles...</div>
         ) : (
-          <DataTable columns={columns} data={categories} />
+          <DataTable columns={columns} data={roles} />
         )}
 
       </div>

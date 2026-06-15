@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DataTable, Column } from '../../components/DataTable';
 import { PlusIcon, EditIcon, TrashIcon } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
 interface MainCategory {
   mainItemCategoryId: number;
@@ -29,8 +30,8 @@ interface FormData {
   visible: number;
 }
 
-const BASE_URL = 'http://localhost:8080/api/sub-categories';
-const CATEGORY_URL = 'http://localhost:8080/api/categories';
+const BASE_URL = `${API_BASE_URL}/api/sub-categories`;
+const CATEGORY_URL = `${API_BASE_URL}/api/categories`;
 
 const defaultForm: FormData = {
   mainItemCategoryId: '',

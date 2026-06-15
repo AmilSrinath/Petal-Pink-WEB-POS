@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CheckCircleIcon } from 'lucide-react';
 import { api } from './Integratedpages';
+import { API_BASE_URL } from '../../config';
 
 interface Item {
   itemId: number;
@@ -87,7 +88,7 @@ export function PurchaseOrderPage() {
   }, []);
 
   useEffect(() => {
-    fetch('http://localhost:8080/api/items')
+    fetch(`${API_BASE_URL}/api/items`)
       .then((r) => r.json())
       .then((data: Item[]) => setAllItems(data))
       .catch(() => {});
@@ -95,7 +96,7 @@ export function PurchaseOrderPage() {
 
   // Fetch unit types
   useEffect(() => {
-    fetch('http://localhost:8080/api/unit-types')
+    fetch(`${API_BASE_URL}/api/unit-types`)
       .then((r) => r.json())
       .then((data: UnitType[]) => setAllUnitTypes(data))
       .catch(() => {});
@@ -236,7 +237,7 @@ export function PurchaseOrderPage() {
         })),
       };
 
-      await fetch('http://localhost:8080/api/purchase-orders', {
+      await fetch(`${API_BASE_URL}/api/purchase-orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
