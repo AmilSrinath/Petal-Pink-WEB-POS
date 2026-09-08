@@ -4,11 +4,13 @@ import {
   Routes,
   Route,
   Navigate,
+  useLocation,
 } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { LoginPage } from './pages/LoginPage';
-import { ModuleAccessProvider } from './context/ModuleAccessContext';
+import { POSPage } from './pages/POSPage';
+import { ModuleAccessProvider, useModuleAccess } from './context/ModuleAccessContext';
 import { DashboardPage } from './pages/DashboardPage';
 import { SalesPage } from './pages/SalesPage';
 import { DeliveryOrdersPage } from './pages/DeliveryOrdersPage';
@@ -23,7 +25,6 @@ import { NewItemPage } from './pages/inventory/NewItemPage';
 import { ItemListPage } from './pages/inventory/ItemListPage';
 import { PurchaseOrderPage } from './pages/inventory/PurchaseOrderPage';
 import { PurchaseOrderListPage } from './pages/inventory/PurchaseOrderListPage';
-// import { GoodReceiveNotePage } from './pages/inventory/GoodReceiveNotePage';
 import { GRNListPage } from './pages/inventory/GRNListPage';
 import { StockManagementPage } from './pages/inventory/StockManagementPage';
 import { SupplierManagementPage } from './pages/inventory/SupplierManagementPage';
@@ -52,6 +53,10 @@ import { EmployeeManagementPage } from './pages/employee/EmployeeManagementPage'
 import { EmployeeTitlePage } from './pages/employee/EmployeeTitlePage';
 import { UserAccountManagementPage } from './pages/employee/UserAccountManagementPage';
 import { UserRoleManagementPage } from './pages/employee/UserRoleManagementPage';
+import { EmployeeAttendancePage } from './pages/employee/EmployeeAttendancePage';
+import { EmployeeAttendanceHistoryPage } from './pages/employee/EmployeeAttendanceHistoryPage';
+import { EmployeeAttendanceReportPage } from './pages/employee/EmployeeAttendanceReportPage';
+import { EmployeeSalaryPage } from './pages/employee/EmployeeSalaryPage';
 
 import { WebsiteDashboardPage } from './pages/website/WebsiteDashboardPage';
 import { ManageWebBannersPage } from './pages/website/ManageWebBannersPage';
@@ -60,6 +65,48 @@ import { ManageWebOrdersPage } from './pages/website/ManageWebOrdersPage';
 import { ManageWebProductsPage } from './pages/website/ManageWebProductsPage';
 import { ManageWebPromotionsPage } from './pages/website/ManageWebPromotionsPage';
 
+// ─── DefaultRedirect ───────────────────────────────────────────────────────────
+// Checks the user's module permissions and redirects to the first accessible page.
+// This runs INSIDE ModuleAccessProvider so it can safely call useModuleAccess().
+function DefaultRedirect() {
+  const { hasAccess, loading } = useModuleAccess();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-teal-600 border-t-transparent" />
+      </div>
+    );
+  }
+
+  // Order matters — the first matching module wins.
+  const moduleRouteMap: [string, string][] = [
+    ['Dashboard',           '/dashboard'],
+    ['Delivery Orders',     '/sales'],
+    ['Filter Order',        '/filter-order'],
+    ['Payment',             '/payment'],
+    ['Inquiry',             '/inquiry'],
+    ['Inventory',           '/inventory'],
+    ['Website',             '/website/web-dashboard'],
+    ['Employee',            '/employee/employee-manage'],
+    ['Report',              '/reports/duration-sales'],
+    ['Configuration',       '/configurations/manage-reasons'],
+  ];
+
+  const firstRoute = moduleRouteMap.find(([module]) => hasAccess(module));
+
+  if (!firstRoute) {
+    return (
+      <div className="flex items-center justify-center h-full text-gray-500 px-8 text-center">
+        <p>ඔබට කිසිදු module එකක access නොමැත. Administrator හා සම්බන්ධ වන්න.</p>
+      </div>
+    );
+  }
+
+  return <Navigate to={firstRoute[1]} replace />;
+}
+// ──────────────────────────────────────────────────────────────────────────────
+
 export function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState('');
@@ -67,7 +114,6 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
-    // Load userId from localStorage on mount
     const storedUserId = localStorage.getItem('userId');
     if (storedUserId) {
       setUserId(parseInt(storedUserId, 10));
@@ -77,7 +123,6 @@ export function App() {
   const handleLogin = (username: string) => {
     setUserName(username);
     setIsLoggedIn(true);
-    // userId is set after login via localStorage
     const storedUserId = localStorage.getItem('userId');
     if (storedUserId) {
       setUserId(parseInt(storedUserId, 10));
@@ -103,156 +148,186 @@ export function App() {
   return (
     <ModuleAccessProvider userId={userId}>
       <Router>
-        <div className="flex h-screen w-full overflow-hidden bg-gray-50 font-sans">
-          <Sidebar onLogout={handleLogout} isCollapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)} />
-
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Routes>
-            <Route path="/" element={<TopBar title="Dashboard" userName={userName} />} />
-            <Route path="/sales" element={<TopBar title="Sales Order Management" userName={userName} />} />
-            <Route path="/delivery-orders" element={<TopBar title="Delivery Orders" userName={userName} />} />
-            <Route path="/filter-order" element={<TopBar title="Filter Orders" userName={userName} />} />
-            <Route path="/payment" element={<TopBar title="Payment Tracking" userName={userName} />} />
-            <Route path="/inquiry" element={<TopBar title="Inquiry Management" userName={userName} />} />
-            <Route path="/inventory" element={<TopBar title="Inventory Management" userName={userName} />} />
-            <Route path="/inventory/item-main-category" element={<TopBar title="Main Categories" userName={userName} />} />
-            <Route path="/inventory/item-sub-category" element={<TopBar title="Sub Categories" userName={userName} />} />
-            <Route path="/inventory/new-item" element={<TopBar title="Items" userName={userName} />} />
-            <Route path="/inventory/item-list" element={<TopBar title="Item List" userName={userName} />} />
-            <Route path="/inventory/purchase-order" element={<TopBar title="Create Purchase Order" userName={userName} />} />
-            <Route path="/inventory/purchase-order-list" element={<TopBar title="Purchase Orders" userName={userName} />} />
-            <Route path="/inventory/grn" element={<TopBar title="Good Receive Note" userName={userName} />} />
-            <Route path="/inventory/grn-list" element={<TopBar title="GRN List" userName={userName} />} />
-            <Route path="/inventory/stock-management" element={<TopBar title="Stock Management" userName={userName} />} />
-            <Route path="/inventory/supplier-management" element={<TopBar title="Supplier Management" userName={userName} />} />
-            <Route path="/inventory/stock-location" element={<TopBar title="Stock Locations" userName={userName} />} />
-            <Route path="/inventory/stock-transfer" element={<TopBar title="Stock Transfer" userName={userName} />} />
-            <Route path="/inventory/unit-type" element={<TopBar title="Unit Types" userName={userName} />} />
-            <Route path="/inventory/payment-type" element={<TopBar title="Payment Types" userName={userName} />} />
-            <Route path="/inventory/printer-type" element={<TopBar title="Printer Configuration" userName={userName} />} />
-            <Route path="/inventory/config-tables" element={<TopBar title="Configuration Tables" userName={userName} />} />
-            <Route path="/inventory/production" element={<TopBar title="Production" userName={userName} />} />
-            {/* <Route path="/inventory/main-table-location" element={<TopBar title="Main Table Locations" userName={userName} />} /> */}
-            <Route path="/inventory/sub-table-location" element={<TopBar title="Sub-Table Locations" userName={userName} />} />
-            <Route path="/reports/duration-sales" element={<TopBar title="Duration Sales Report" userName={userName} />} />
-            <Route path="/configurations/manage-reasons" element={<TopBar title="Manage Reasons" userName={userName} />} />
-            <Route path="/configurations/manage-courier-company" element={<TopBar title="Manage Courier Company" userName={userName} />} />
-            <Route path="/configurations/manage-courier-branches" element={<TopBar title="Manage Courier Branches" userName={userName} />} />
-            <Route path="/configurations/manage-status-type" element={<TopBar title="Manage Status Type" userName={userName} />} />
-            <Route path="/configurations/manage-user-auth" element={<TopBar title="Manage User Auth" userName={userName} />} />
-            <Route path="/configurations/manage-order-type" element={<TopBar title="Manage Order Types" userName={userName} />} />
-            <Route path="/configurations/manage-status" element={<TopBar title="Manage Status" userName={userName} />} />
-            <Route path="/configurations/manage-business-profile" element={<TopBar title="Manage Business Profile" userName={userName} />} />
-            <Route path="/configurations/stock-adj" element={<TopBar title="Stock Adjustment" userName={userName} />} />
-
-            <Route path="/website/web-dashboard" element={<TopBar title="Website Dashboard" userName={userName} />} />
-            <Route path="/website/manage-web-banners" element={<TopBar title="Manage Banners" userName={userName} />} />
-            <Route path="/website/manage-web-categories" element={<TopBar title="Manage Categories" userName={userName} />} />
-            <Route path="/website/manage-web-orders" element={<TopBar title="Manage Orders" userName={userName} />} />
-            <Route path="/website/manage-web-products" element={<TopBar title="Manage Products" userName={userName} />} />
-            <Route path="/website/manage-web-promotions" element={<TopBar title="Manage Promotions" userName={userName} />} />
-
-            <Route path="*" element={<TopBar title="Petal Pink POS System" userName={userName} />} />
-          </Routes>
-
-          <main className="flex-1 overflow-auto">
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/sales" element={<SalesPage />} />
-              <Route path="/delivery-orders" element={<DeliveryOrdersPage />} />
-              <Route path="/filter-order" element={<FilterOrderPage />} />
-              <Route path="/payment" element={<PaymentPage />} />
-              <Route path="/inquiry" element={<InquiryPage />} />
-
-              {/* Inventory Routes */}
-              <Route path="/inventory" element={<InventoryPage />} />
-              <Route path="/inventory/item-main-category" element={<ItemMainCategoryPage />} />
-              <Route path="/inventory/item-sub-category" element={<ItemSubCategoryPage />} />
-              <Route path="/inventory/new-item" element={<NewItemPage />} />
-              <Route path="/inventory/item-list" element={<ItemListPage />} />
-              <Route path="/inventory/purchase-order" element={<PurchaseOrderPage />} />
-              <Route path="/inventory/purchase-order-list" element={<PurchaseOrderListPage />} />
-              {/* <Route path="/inventory/grn" element={<GoodReceiveNotePage />} /> */}
-              <Route path="/inventory/grn-list" element={<GRNListPage />} />
-              <Route path="/inventory/stock-management" element={<StockManagementPage />} />
-              <Route path="/inventory/supplier-management" element={<SupplierManagementPage />} />
-              {/* <Route path="/inventory/stock-location" element={<StockLocationPage />} /> */}
-              <Route path="/inventory/stock-transfer" element={<StockTransferPage />} />
-              <Route path="/inventory/unit-type" element={<UnitTypePage />} />
-              <Route path="/inventory/payment-type" element={<PaymentTypePage />} />
-              <Route path="/inventory/printer-type" element={<PrinterTypePage />} />
-              <Route path="/inventory/config-tables" element={<ConfigTablesPage />} />
-              <Route path="/inventory/main-table-location" element={<MainTableLocationPage />} />
-              <Route path="/inventory/sub-table-location" element={<SubTableLocationPage />} />
-              <Route path="/inventory/production" element={<ProductionPage />} />
-              <Route path="/reports/duration-sales" element={<DurationSalesReportPage />} />
-
-              {/* Configuration Routes */}
-              <Route path="/configurations/manage-reasons" element={<ManageReasonsPage />} />
-              <Route path="/configurations/manage-courier-company" element={<ManageCourierCompanyPage />} />
-              <Route path="/configurations/manage-courier-branches" element={<ManageCourierBranchesPage />} />
-              <Route path="/configurations/manage-status-type" element={<ManageStatusTypePage />} />
-              <Route path="/configurations/manage-user-auth" element={<ManageUserAuthPage />} />
-              <Route path="/configurations/manage-order-type" element={<ManageOrderTypePage />} />
-              <Route path="/configurations/manage-status" element={<ManageStatusPage />} />
-              <Route path="/configurations/manage-business-profile" element={<ManageBusinessProfilePage />} />
-              <Route path="/configurations/main-table-location" element={<ManageBusinessProfilePage />} />
-              <Route path="/configurations/stock-location" element={<StockLocationPage />} />
-              <Route path="/configurations/stock-adj" element={<ManageStockAdjPage />} />
-
-              <Route path="/inventory/main-table-location" element={<StockLocationPage/>} />
-
-              {/* Placeholder Routes */}
-              <Route path="/pms" element={<PlaceholderPage title="PMS" />} />
-              <Route path="/employee" element={<PlaceholderPage title="Employee Management" />} />
-              <Route path="/property-management" element={<PlaceholderPage title="Property Management" />} />
-              <Route path="/reports" element={<PlaceholderPage title="Reports" />} />
-              <Route path="/configurations" element={<PlaceholderPage title="Configurations" />} />
-
-              {/* Employee */}
-              <Route path="/employee/employee-manage" element={<EmployeeManagementPage />} />
-              <Route path="/employee/user-account-manage" element={<UserAccountManagementPage />} />
-              <Route path="/employee/user-role-manage" element={<UserRoleManagementPage />} />
-              <Route path="/employee/employee-designation" element={<EmployeeDesignationPage />} />
-              <Route path="/employee/employee-title" element={<EmployeeTitlePage />} />
-
-
-              <Route
-                path="/website/web-dashboard"
-                element={<WebsiteDashboardPage />}
-              />
-
-              <Route
-                path="/website/manage-web-banners"
-                element={<ManageWebBannersPage />}
-              />
-
-              <Route
-                path="/website/manage-web-categories"
-                element={<ManageWebCategoriesPage />}
-              />
-
-              <Route
-                path="/website/manage-web-orders"
-                element={<ManageWebOrdersPage />}
-              />
-
-              <Route
-                path="/website/manage-web-products"
-                element={<ManageWebProductsPage />}
-              />
-
-              <Route
-                path="/website/manage-web-promotions"
-                element={<ManageWebPromotionsPage />}
-              />
-
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </main>
-        </div>
-      </div>
-    </Router>
+        <AppShell
+          userName={userName}
+          sidebarCollapsed={sidebarCollapsed}
+          setSidebarCollapsed={setSidebarCollapsed}
+          handleLogout={handleLogout}
+        />
+      </Router>
     </ModuleAccessProvider>
+  );
+}
+
+// ─── AppShell ───────────────────────────────────────────────────────────────
+// Rendered inside <Router>, so it can read the current route via useLocation.
+// The existing sidebar + topbar + routed pages render as before for every
+// screen, EXCEPT the POS screen: POS is a full-screen module, so when the
+// route is "/pos" this shell hides the existing sidebar/topbar entirely and
+// renders only <POSPage />. No other route's layout is touched.
+interface AppShellProps {
+  userName: string;
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (value: boolean) => void;
+  handleLogout: () => void;
+}
+
+function AppShell({ userName, sidebarCollapsed, setSidebarCollapsed, handleLogout }: AppShellProps) {
+  const location = useLocation();
+  const isPOSRoute = location.pathname === '/pos';
+
+  if (isPOSRoute) {
+    return <POSPage />;
+  }
+
+  return (
+    <div className="flex h-screen w-full overflow-hidden bg-gray-50 font-sans">
+      <Sidebar
+        onLogout={handleLogout}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* ── TopBar route matching ── */}
+        <Routes>
+              <Route path="/"                                          element={<TopBar title="Petal Pink POS System"   userName={userName} />} />
+              <Route path="/dashboard"                                 element={<TopBar title="Dashboard"               userName={userName} />} />
+              <Route path="/sales"                                     element={<TopBar title="Sales Order Management"  userName={userName} />} />
+              <Route path="/delivery-orders"                          element={<TopBar title="Delivery Orders"         userName={userName} />} />
+              <Route path="/filter-order"                             element={<TopBar title="Filter Orders"           userName={userName} />} />
+              <Route path="/payment"                                   element={<TopBar title="Payment Tracking"        userName={userName} />} />
+              <Route path="/inquiry"                                   element={<TopBar title="Inquiry Management"      userName={userName} />} />
+              <Route path="/inventory"                                 element={<TopBar title="Inventory Management"    userName={userName} />} />
+              <Route path="/inventory/item-main-category"             element={<TopBar title="Main Categories"         userName={userName} />} />
+              <Route path="/inventory/item-sub-category"              element={<TopBar title="Sub Categories"          userName={userName} />} />
+              <Route path="/inventory/new-item"                       element={<TopBar title="Items"                   userName={userName} />} />
+              <Route path="/inventory/item-list"                      element={<TopBar title="Item List"               userName={userName} />} />
+              <Route path="/inventory/purchase-order"                 element={<TopBar title="Create Purchase Order"   userName={userName} />} />
+              <Route path="/inventory/purchase-order-list"            element={<TopBar title="Purchase Orders"         userName={userName} />} />
+              <Route path="/inventory/grn"                            element={<TopBar title="Good Receive Note"       userName={userName} />} />
+              <Route path="/inventory/grn-list"                       element={<TopBar title="GRN List"                userName={userName} />} />
+              <Route path="/inventory/stock-management"               element={<TopBar title="Stock Management"        userName={userName} />} />
+              <Route path="/inventory/supplier-management"            element={<TopBar title="Supplier Management"     userName={userName} />} />
+              <Route path="/inventory/stock-location"                 element={<TopBar title="Stock Locations"         userName={userName} />} />
+              <Route path="/inventory/stock-transfer"                 element={<TopBar title="Stock Transfer"          userName={userName} />} />
+              <Route path="/inventory/unit-type"                      element={<TopBar title="Unit Types"              userName={userName} />} />
+              <Route path="/inventory/payment-type"                   element={<TopBar title="Payment Types"           userName={userName} />} />
+              <Route path="/inventory/printer-type"                   element={<TopBar title="Printer Configuration"   userName={userName} />} />
+              <Route path="/inventory/config-tables"                  element={<TopBar title="Configuration Tables"    userName={userName} />} />
+              <Route path="/inventory/production"                     element={<TopBar title="Production"              userName={userName} />} />
+              <Route path="/inventory/sub-table-location"             element={<TopBar title="Sub-Table Locations"     userName={userName} />} />
+              <Route path="/reports/duration-sales"                   element={<TopBar title="Duration Sales Report"   userName={userName} />} />
+              <Route path="/reports/employee-attendance"              element={<TopBar title="Attendance Report"       userName={userName} />} />
+              <Route path="/configurations/manage-reasons"            element={<TopBar title="Manage Reasons"          userName={userName} />} />
+              <Route path="/configurations/manage-courier-company"    element={<TopBar title="Manage Courier Company"  userName={userName} />} />
+              <Route path="/configurations/manage-courier-branches"   element={<TopBar title="Manage Courier Branches" userName={userName} />} />
+              <Route path="/configurations/manage-status-type"        element={<TopBar title="Manage Status Type"      userName={userName} />} />
+              <Route path="/configurations/manage-user-auth"          element={<TopBar title="Manage User Auth"        userName={userName} />} />
+              <Route path="/configurations/manage-order-type"         element={<TopBar title="Manage Order Types"      userName={userName} />} />
+              <Route path="/configurations/manage-status"             element={<TopBar title="Manage Status"           userName={userName} />} />
+              <Route path="/configurations/manage-business-profile"   element={<TopBar title="Manage Business Profile" userName={userName} />} />
+              <Route path="/configurations/stock-adj"                 element={<TopBar title="Stock Adjustment"        userName={userName} />} />
+              <Route path="/website/web-dashboard"                    element={<TopBar title="Website Dashboard"       userName={userName} />} />
+              <Route path="/website/manage-web-banners"               element={<TopBar title="Manage Banners"          userName={userName} />} />
+              <Route path="/website/manage-web-categories"            element={<TopBar title="Manage Categories"       userName={userName} />} />
+              <Route path="/website/manage-web-orders"                element={<TopBar title="Manage Orders"           userName={userName} />} />
+              <Route path="/website/manage-web-products"              element={<TopBar title="Manage Products"         userName={userName} />} />
+              <Route path="/website/manage-web-promotions"            element={<TopBar title="Manage Promotions"       userName={userName} />} />
+              <Route path="/employee/employee-manage"                 element={<TopBar title="Employee Management"     userName={userName} />} />
+              <Route path="/employee/user-account-manage"             element={<TopBar title="User Account Manage"     userName={userName} />} />
+              <Route path="/employee/user-role-manage"                element={<TopBar title="User Role Manage"        userName={userName} />} />
+              <Route path="/employee/employee-designation"            element={<TopBar title="Employee Designation"    userName={userName} />} />
+              <Route path="/employee/employee-title"                  element={<TopBar title="Employee Title"          userName={userName} />} />
+              <Route path="/employee/employee-attendance"            element={<TopBar title="Employee Attendance"     userName={userName} />} />
+              <Route path="/employee/employee-attendance-history"    element={<TopBar title="Attendance History"      userName={userName} />} />
+              <Route path="/employee/employee-salary"                element={<TopBar title="Employee Salary"         userName={userName} />} />
+              <Route path="*"                                          element={<TopBar title="Petal Pink POS System"   userName={userName} />} />
+            </Routes>
+
+            {/* ── Main content ── */}
+            <main className="flex-1 overflow-auto">
+              <Routes>
+                {/* "/" → smart redirect based on permissions */}
+                <Route path="/"          element={<DefaultRedirect />} />
+
+                {/* Dashboard — only if user has access */}
+                <Route path="/dashboard" element={<DashboardPage />} />
+
+                <Route path="/sales"           element={<SalesPage />} />
+                <Route path="/delivery-orders" element={<DeliveryOrdersPage />} />
+                <Route path="/filter-order"    element={<FilterOrderPage />} />
+                <Route path="/payment"         element={<PaymentPage />} />
+                <Route path="/inquiry"         element={<InquiryPage />} />
+
+                {/* Inventory */}
+                <Route path="/inventory"                      element={<InventoryPage />} />
+                <Route path="/inventory/item-main-category"   element={<ItemMainCategoryPage />} />
+                <Route path="/inventory/item-sub-category"    element={<ItemSubCategoryPage />} />
+                <Route path="/inventory/new-item"             element={<NewItemPage />} />
+                <Route path="/inventory/item-list"            element={<ItemListPage />} />
+                <Route path="/inventory/purchase-order"       element={<PurchaseOrderPage />} />
+                <Route path="/inventory/purchase-order-list"  element={<PurchaseOrderListPage />} />
+                <Route path="/inventory/grn-list"             element={<GRNListPage />} />
+                <Route path="/inventory/stock-management"     element={<StockManagementPage />} />
+                <Route path="/inventory/supplier-management"  element={<SupplierManagementPage />} />
+                <Route path="/inventory/stock-transfer"       element={<StockTransferPage />} />
+                <Route path="/inventory/unit-type"            element={<UnitTypePage />} />
+                <Route path="/inventory/payment-type"         element={<PaymentTypePage />} />
+                <Route path="/inventory/printer-type"         element={<PrinterTypePage />} />
+                <Route path="/inventory/config-tables"        element={<ConfigTablesPage />} />
+                <Route path="/inventory/main-table-location"  element={<MainTableLocationPage />} />
+                <Route path="/inventory/sub-table-location"   element={<SubTableLocationPage />} />
+                <Route path="/inventory/production"           element={<ProductionPage />} />
+
+                {/* Reports */}
+                <Route path="/reports/duration-sales" element={<DurationSalesReportPage />} />
+                <Route path="/reports/employee-attendance" element={<EmployeeAttendanceReportPage />} />
+
+                {/* Configurations */}
+                <Route path="/configurations/manage-reasons"           element={<ManageReasonsPage />} />
+                <Route path="/configurations/manage-courier-company"   element={<ManageCourierCompanyPage />} />
+                <Route path="/configurations/manage-courier-branches"  element={<ManageCourierBranchesPage />} />
+                <Route path="/configurations/manage-status-type"       element={<ManageStatusTypePage />} />
+                <Route path="/configurations/manage-user-auth"         element={<ManageUserAuthPage />} />
+                <Route path="/configurations/manage-order-type"        element={<ManageOrderTypePage />} />
+                <Route path="/configurations/manage-status"            element={<ManageStatusPage />} />
+                <Route path="/configurations/manage-business-profile"  element={<ManageBusinessProfilePage />} />
+                <Route path="/configurations/main-table-location"      element={<ManageBusinessProfilePage />} />
+                <Route path="/configurations/stock-location"           element={<StockLocationPage />} />
+                <Route path="/configurations/stock-adj"                element={<ManageStockAdjPage />} />
+                <Route path="/inventory/main-table-location"           element={<StockLocationPage />} />
+
+                {/* Placeholders */}
+                <Route path="/pms"                 element={<PlaceholderPage title="PMS" />} />
+                <Route path="/employee"            element={<PlaceholderPage title="Employee Management" />} />
+                <Route path="/property-management" element={<PlaceholderPage title="Property Management" />} />
+                <Route path="/reports"             element={<PlaceholderPage title="Reports" />} />
+                <Route path="/configurations"      element={<PlaceholderPage title="Configurations" />} />
+
+                {/* Employee */}
+                <Route path="/employee/employee-manage"        element={<EmployeeManagementPage />} />
+                <Route path="/employee/user-account-manage"    element={<UserAccountManagementPage />} />
+                <Route path="/employee/user-role-manage"       element={<UserRoleManagementPage />} />
+                <Route path="/employee/employee-designation"   element={<EmployeeDesignationPage />} />
+                <Route path="/employee/employee-title"         element={<EmployeeTitlePage />} />
+                <Route path="/employee/employee-attendance"    element={<EmployeeAttendancePage />} />
+                <Route path="/employee/employee-attendance-history" element={<EmployeeAttendanceHistoryPage />} />
+                <Route path="/employee/employee-salary"        element={<EmployeeSalaryPage />} />
+
+                {/* Website */}
+                <Route path="/website/web-dashboard"       element={<WebsiteDashboardPage />} />
+                <Route path="/website/manage-web-banners"  element={<ManageWebBannersPage />} />
+                <Route path="/website/manage-web-categories" element={<ManageWebCategoriesPage />} />
+                <Route path="/website/manage-web-orders"   element={<ManageWebOrdersPage />} />
+                <Route path="/website/manage-web-products" element={<ManageWebProductsPage />} />
+                <Route path="/website/manage-web-promotions" element={<ManageWebPromotionsPage />} />
+
+                {/* Fallback — unknown paths redirect to smart default */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </main>
+          </div>
+        </div>
   );
 }

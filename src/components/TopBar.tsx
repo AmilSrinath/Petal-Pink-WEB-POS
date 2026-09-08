@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { API_BASE_URL } from '../config';
+import { orderApi, WsOrder } from '../services/websiteService';
 
 interface Notification {
   id: number;
@@ -72,6 +73,14 @@ interface GroupedNotification {
   }[];
 }
 
+interface OrderNotification {
+  orderId: string;
+  customerName: string;
+  total: number;
+  createdDate: string;
+  read: boolean;
+}
+
 interface TopBarProps {
   title: string;
   userName: string;
@@ -83,6 +92,8 @@ const ITEMS_API_URL = `${API_BASE_URL}/api/items`;
 const STOCK_API_URL = `${API_BASE_URL}/api/stocks`;
 const POLL_INTERVAL_MS = 60_000;
 
+const ORDER_POLL_INTERVAL_MS = 30_000; // 30 seconds
+
 export function TopBar({ title, userName }: TopBarProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -93,6 +104,16 @@ export function TopBar({ title, userName }: TopBarProps) {
   const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Web order notifications
+  const [orderNotifications, setOrderNotifications] = useState<OrderNotification[]>([]);
+  const [readOrderIds, setReadOrderIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('readOrderIds');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
+  const [activeTab, setActiveTab] = useState<'orders' | 'stock'>('orders');
 
   // Profile form state
   const [newUsername, setNewUsername] = useState('');
@@ -245,11 +266,36 @@ export function TopBar({ title, userName }: TopBarProps) {
     }
   };
 
+  // Fetch new web orders for notifications
+  const fetchOrderNotifications = async () => {
+    try {
+      const orders: WsOrder[] = await orderApi.getAll();
+      const recent = orders
+        .filter(o => o.orderStatus === 'PENDING' || o.orderStatus === 'Pending')
+        .map(o => ({
+          orderId: o.orderId,
+          customerName: o.orderId,
+          total: o.total,
+          createdDate: o.createdDate,
+          read: readOrderIds.has(o.orderId),
+        }));
+      setOrderNotifications(recent);
+    } catch (err) {
+      // silently fail — don't break stock notifications
+    }
+  };
+
   useEffect(() => {
     fetchAllData();
     const interval = setInterval(fetchAllData, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [readItems]);
+
+  useEffect(() => {
+    fetchOrderNotifications();
+    const interval = setInterval(fetchOrderNotifications, ORDER_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [readOrderIds]);
 
   // Unread count across all grouped items
   const unreadCount = groupedNotifications.reduce((total, g) => {
@@ -271,6 +317,22 @@ export function TopBar({ title, userName }: TopBarProps) {
     );
     setReadItems(new Set(allIds));
   };
+
+  const markOrderRead = (orderId: string) => {
+    const updated = new Set([...readOrderIds, orderId]);
+    setReadOrderIds(updated);
+    localStorage.setItem('readOrderIds', JSON.stringify([...updated]));
+  };
+
+  const markAllOrdersRead = () => {
+    const allIds = orderNotifications.map(o => o.orderId);
+    const updated = new Set([...readOrderIds, ...allIds]);
+    setReadOrderIds(updated);
+    localStorage.setItem('readOrderIds', JSON.stringify([...updated]));
+  };
+
+  const unreadOrderCount = orderNotifications.filter(o => !readOrderIds.has(o.orderId)).length;
+  const totalUnread = unreadCount + unreadOrderCount;
 
   const toggleCategory = (catId: number) => {
     setCollapsedCategories((prev) => {
@@ -382,46 +444,125 @@ export function TopBar({ title, userName }: TopBarProps) {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-teal-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
-              {unreadCount > 0 && (
+              {totalUnread > 0 && (
                 <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
-                  {unreadCount > 99 ? '99+' : unreadCount}
+                  {totalUnread > 99 ? '99+' : totalUnread}
                 </span>
               )}
             </button>
 
             {isOpen && (
-              <div className="absolute right-0 mt-2 w-96 rounded-xl bg-white shadow-2xl ring-1 ring-black/10 z-50 overflow-hidden">
-                {/* Header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-gray-800">Low Stock Alerts</h3>
-                    {totalItems > 0 && (
-                      <span className="text-[11px] bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">
-                        {totalItems} item{totalItems !== 1 ? 's' : ''}
+              <div className="absolute right-0 mt-2 w-[420px] rounded-xl bg-white shadow-2xl ring-1 ring-black/10 z-50 overflow-hidden">
+                {/* Tab Header */}
+                <div className="flex border-b border-gray-100 bg-gray-50">
+                  <button
+                    onClick={() => setActiveTab('orders')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold transition-colors ${
+                      activeTab === 'orders'
+                        ? 'text-teal-700 border-b-2 border-teal-600 bg-white'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    🛒 New Orders
+                    {unreadOrderCount > 0 && (
+                      <span className="text-[11px] bg-teal-100 text-teal-700 font-bold px-1.5 py-0.5 rounded-full">
+                        {unreadOrderCount}
                       </span>
                     )}
-                    {stockError && (
-                      <span title="Could not fetch stock data" className="text-xs text-red-500 font-medium">⚠ offline</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {/* Toggle grouped / flat */}
-                    <button
-                      onClick={() => setViewMode((v) => (v === 'grouped' ? 'flat' : 'grouped'))}
-                      className="text-[11px] text-gray-400 hover:text-teal-600 font-medium transition-colors"
-                      title={viewMode === 'grouped' ? 'Switch to list view' : 'Switch to grouped view'}
-                    >
-                      {viewMode === 'grouped' ? '☰ List' : '⊞ Group'}
-                    </button>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('stock')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold transition-colors ${
+                      activeTab === 'stock'
+                        ? 'text-amber-700 border-b-2 border-amber-500 bg-white'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    ⚠ Low Stock
                     {unreadCount > 0 && (
-                      <button onClick={markAllRead} className="text-xs text-teal-600 hover:text-teal-800 font-medium transition-colors">
-                        Mark all read
-                      </button>
+                      <span className="text-[11px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
+                        {unreadCount}
+                      </span>
                     )}
-                  </div>
+                  </button>
                 </div>
 
-                <div className="max-h-[420px] overflow-y-auto">
+                <div className="max-h-[440px] overflow-y-auto">
+
+                  {/* ── Orders Tab ── */}
+                  {activeTab === 'orders' && (
+                    <div>
+                      {orderNotifications.length === 0 ? (
+                        <div className="px-4 py-10 text-center">
+                          <div className="text-3xl mb-2">🛍️</div>
+                          <p className="text-sm text-gray-400 font-medium">No pending orders</p>
+                        </div>
+                      ) : (
+                        <div>
+                          {/* Mark all read */}
+                          {unreadOrderCount > 0 && (
+                            <div className="flex justify-end px-4 py-2 border-b border-gray-50">
+                              <button
+                                onClick={markAllOrdersRead}
+                                className="text-xs text-teal-600 hover:text-teal-800 font-medium transition-colors"
+                              >
+                                Mark all read
+                              </button>
+                            </div>
+                          )}
+                          <ul className="divide-y divide-gray-50">
+                            {orderNotifications.map(order => {
+                              const isRead = readOrderIds.has(order.orderId);
+                              const timeAgo = (() => {
+                                const diff = Date.now() - new Date(order.createdDate).getTime();
+                                const mins = Math.floor(diff / 60000);
+                                if (mins < 1) return 'Just now';
+                                if (mins < 60) return `${mins}m ago`;
+                                const hrs = Math.floor(mins / 60);
+                                if (hrs < 24) return `${hrs}h ago`;
+                                return `${Math.floor(hrs / 24)}d ago`;
+                              })();
+                              return (
+                                <li
+                                  key={order.orderId}
+                                  onClick={() => markOrderRead(order.orderId)}
+                                  className={`flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                                    isRead ? 'bg-white hover:bg-gray-50' : 'bg-teal-50 hover:bg-teal-100/60'
+                                  }`}
+                                >
+                                  {/* Icon */}
+                                  <div className={`mt-0.5 flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-base ${
+                                    isRead ? 'bg-gray-100' : 'bg-teal-100'
+                                  }`}>
+                                    🛒
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-xs font-bold text-gray-800 font-mono">{order.orderId}</p>
+                                      {!isRead && (
+                                        <span className="h-1.5 w-1.5 rounded-full bg-teal-500 flex-shrink-0" />
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-0.5">
+                                      New order · <span className="font-semibold text-gray-700">LKR {order.total?.toLocaleString()}</span>
+                                    </p>
+                                    <p className="text-[11px] text-gray-400 mt-0.5">{timeAgo}</p>
+                                  </div>
+                                  <span className="text-[10px] bg-yellow-100 text-yellow-700 font-semibold px-2 py-0.5 rounded-full mt-1 flex-shrink-0">
+                                    PENDING
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Stock Tab ── */}
+                  {activeTab === 'stock' && (
+                  <div>
                   {totalItems === 0 ? (
                     <div className="px-4 py-8 text-center">
                       <div className="text-3xl mb-2">✅</div>
@@ -570,15 +711,25 @@ export function TopBar({ title, userName }: TopBarProps) {
                       ))}
                     </ul>
                   )}
-                </div>
+
+                  </div>
+                  )} {/* end stock tab */}
+
+                </div> {/* end scrollable area */}
 
                 {/* Footer */}
                 <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
                   <span className="text-[11px] text-gray-400">
-                    {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
+                    {activeTab === 'orders'
+                      ? (unreadOrderCount > 0 ? `${unreadOrderCount} new order${unreadOrderCount !== 1 ? 's' : ''}` : 'All caught up')
+                      : (unreadCount > 0 ? `${unreadCount} unread` : 'All stock OK')
+                    }
                   </span>
-                  <button className="text-xs text-teal-600 hover:text-teal-800 font-medium transition-colors">
-                    View all →
+                  <button
+                    onClick={() => { setIsOpen(false); }}
+                    className="text-xs text-teal-600 hover:text-teal-800 font-medium transition-colors"
+                  >
+                    {activeTab === 'orders' ? 'Go to Orders →' : 'View all →'}
                   </button>
                 </div>
               </div>

@@ -206,7 +206,7 @@ export function NewItemPage() {
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch(API_BASE);
+      const res = await fetch(`${API_BASE}?includeInactive=true`);
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data: Item[] = await res.json();
       setItems(data);
@@ -668,7 +668,7 @@ export function NewItemPage() {
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    {['ID', 'Code', 'Item Name', 'Main Cat.', 'Sub Cat.', 'Unit', 'Cost', 'Price', 'Weight', 'GRN', 'Selling', 'Actions'].map(h => (
+                    {['ID', 'Code', 'Item Name', 'Main Cat.', 'Sub Cat.', 'Unit', 'Cost', 'Price', 'Weight', 'GRN', 'Selling', 'Status', 'Actions'].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 whitespace-nowrap">
                         {h}
                       </th>
@@ -677,7 +677,7 @@ export function NewItemPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {filtered.length === 0 ? (
-                    <tr><td colSpan={14} className="px-4 py-10 text-center text-gray-400">No items found.</td></tr>
+                    <tr><td colSpan={13} className="px-4 py-10 text-center text-gray-400">No items found.</td></tr>
                   ) : filtered.map(item => (
                     <tr key={item.itemId} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3 text-gray-500 font-mono">{item.itemId}</td>
@@ -696,7 +696,7 @@ export function NewItemPage() {
                       <td className="px-4 py-3 text-gray-500 text-left">{item.weight > 0 ? `${item.weight}` : '—'}</td>
                       <td className="px-4 py-3"><Badge active={item.grnStatus === 1} trueLabel="Yes" falseLabel="No" /></td>
                       <td className="px-4 py-3"><Badge active={item.sellingStatus === 1} trueLabel="Yes" falseLabel="No" /></td>
-                      {/* <td className="px-4 py-3"><Badge active={item.status === 1} trueLabel="Active" falseLabel="Inactive" /></td> */}
+                      <td className="px-4 py-3"><Badge active={item.status === 1} trueLabel="Active" falseLabel="Inactive" /></td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
                           <ActionBtn title="Edit" onClick={() => openEdit(item)}>

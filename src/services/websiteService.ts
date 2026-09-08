@@ -51,12 +51,31 @@ async function putForm<T>(path: string, form: FormData): Promise<T> {
 // ─── types ───────────────────────────────────────────────────────────────────
 
 export interface WsBanner {
-  id: number;
+  bannerId: number;
   title: string;
   subtitle: string;
   imageUrl: string;
   createdDate: string;
   userId: number;
+}
+
+export interface WsMainCategory {
+  mainCategoryId: number;
+  mainCategoryName: string;
+  createdData: string;
+  editedDate: string;
+  userId: number;
+  status: number;
+}
+
+export interface WsSubCategory {
+  subCategoryId: number;
+  subCategoryName: string;
+  mainCategoryId: number;
+  createdDate: string;
+  editedDate: string;
+  userId: number;
+  status: number;
 }
 
 export interface WsProduct {
@@ -87,6 +106,9 @@ export interface WsOrder {
   subTotal: number;
   orderStatus: string;
   trackingNumber: string;
+  // Set once this order has been pushed into the Sales page as a normal
+  // order; null if that hasn't happened yet (or the automatic push failed).
+  deliveryOrderId: number | null;
 }
 
 export interface WsOrderDetails extends WsOrder {
@@ -109,6 +131,10 @@ export interface WsOrderItem {
   price: number;
   subTotal: number;
   imageUrl: string;
+  mainCategoryName: string;
+  subCategoryName: string;
+  selectedSize: string | null;
+  selectedColor: string | null;
 }
 
 export interface WsCustomer {
@@ -165,6 +191,46 @@ export const bannerApi = {
   save: (form: FormData) => postForm<{ banner_id: number }>('/banner/save', form),
   update: (id: number, form: FormData) => putForm<{ message: string }>(`/banner/${id}`, form),
   delete: (id: number) => del<{ message: string }>(`/banner/${id}`),
+};
+
+// ─── CATEGORIES ──────────────────────────────────────────────────────────────
+export const categoryApi = {
+  main: {
+    getAll: () =>
+      get<{ mainCategories: WsMainCategory[] }>('/category/main/all').then(r => r.mainCategories),
+    getById: (id: number) => get<WsMainCategory>(`/category/main/${id}`),
+    save: (mainCategoryName: string, userId: number) =>
+      post<{ message: string; main_category_id: number }>('/category/main/save', {
+        main_category_name: mainCategoryName,
+        user_id: userId,
+      }),
+    update: (id: number, mainCategoryName: string, userId: number) =>
+      put<{ message: string }>(`/category/main/${id}`, {
+        main_category_name: mainCategoryName,
+        user_id: userId,
+      }),
+    delete: (id: number) => del<{ message: string }>(`/category/main/${id}`),
+  },
+  sub: {
+    getAll: () =>
+      get<{ subCategories: WsSubCategory[] }>('/category/sub/all').then(r => r.subCategories),
+    getByMainCategory: (mainCategoryId: number) =>
+      get<{ subCategories: WsSubCategory[] }>(`/category/sub/by-main/${mainCategoryId}`).then(r => r.subCategories),
+    getById: (id: number) => get<WsSubCategory>(`/category/sub/${id}`),
+    save: (subCategoryName: string, mainCategoryId: number, userId: number) =>
+      post<{ message: string; sub_category_id: number }>('/category/sub/save', {
+        sub_category_name: subCategoryName,
+        main_category_id: mainCategoryId,
+        user_id: userId,
+      }),
+    update: (id: number, subCategoryName: string, mainCategoryId: number, userId: number) =>
+      put<{ message: string }>(`/category/sub/${id}`, {
+        sub_category_name: subCategoryName,
+        main_category_id: mainCategoryId,
+        user_id: userId,
+      }),
+    delete: (id: number) => del<{ message: string }>(`/category/sub/${id}`),
+  },
 };
 
 // ─── PRODUCTS ────────────────────────────────────────────────────────────────

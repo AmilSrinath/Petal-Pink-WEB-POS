@@ -21,10 +21,10 @@ import {
   HistoryIcon,
   AlertTriangleIcon,
   ChevronDownIcon,
-  ShoppingBagIcon,
 } from 'lucide-react';
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, Column } from '../components/DataTable';
+import { CourierBagCombobox, CourierBag } from '../components/CourierBagCombobox';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -42,15 +42,6 @@ interface Item {
   status: number;
   subItemCategoryId: number;
   mainItemCategoryId: number;
-}
-
-interface CourierBag {
-  itemId: number;
-  itemBarCode: number;
-  itemName: string;
-  itemCodePrefix: string;
-  subItemCategoryName: string;
-  status: number;
 }
 
 interface SubItemCategoryDTO {
@@ -89,6 +80,7 @@ interface Order {
   customerName: string;
   phoneOne: string;
   phoneTwo: string;
+  address: string;
   cod: number;
   totalAmount: number;
   orderType: string;
@@ -232,6 +224,7 @@ const mapApiToOrder = (d: DeliveryOrderResponse): Order => ({
   customerName: d.customerName?.trim() ?? '',
   phoneOne: d.phoneOne ?? '',
   phoneTwo: d.phoneTwo ?? '',
+  address: d.address ?? '',
   cod: d.codAmount ?? 0,
   totalAmount: d.totalOrderPrice ?? 0,
   orderType: d.orderType ?? '',
@@ -256,8 +249,8 @@ const isStatusButtonAllowed = (currentStatusId: number, targetStatusId: number):
   if (currentStatusId === 2 && targetStatusId === 7) return true;
   const allowedTransitions: Record<number, number[]> = {
     2:  [3, 7],
-    3:  [4],
-    4:  [5, 16],   // ← 16 = Damage added here
+    3:  [4, 7],
+    4:  [5, 12, 16],   // ← 16 = Damage added here
     12: [6],
   };
   return (allowedTransitions[currentStatusId] ?? []).includes(targetStatusId);
@@ -288,235 +281,6 @@ const FieldRow = ({ label, children, alignStart = false }: FieldRowProps) => (
     <div className="flex-1 min-w-0">{children}</div>
   </div>
 );
-
-// ─── Courier Bag Combobox ─────────────────────────────────────────────────────
-
-interface CourierBagComboboxProps {
-  bags: CourierBag[];
-  selectedId: number | null;
-  onChange: (bag: CourierBag | null) => void;
-  isLoading: boolean;
-}
-
-const BAG_SIZE_META: Record<string, { emoji: string; color: string; border: string; dot: string }> = {
-  small:  { emoji: '🟡', color: 'bg-amber-50 text-amber-800',   border: 'border-amber-300',  dot: 'bg-amber-400' },
-  medium: { emoji: '🔵', color: 'bg-blue-50 text-blue-800',     border: 'border-blue-300',   dot: 'bg-blue-400' },
-  large:  { emoji: '🟢', color: 'bg-emerald-50 text-emerald-800', border: 'border-emerald-300', dot: 'bg-emerald-400' },
-};
-
-const getBagMeta = (name: string) => {
-  const lower = name.toLowerCase();
-  if (lower.includes('small'))  return BAG_SIZE_META.small;
-  if (lower.includes('medium')) return BAG_SIZE_META.medium;
-  if (lower.includes('large'))  return BAG_SIZE_META.large;
-  return { emoji: '📦', color: 'bg-gray-50 text-gray-700', border: 'border-gray-300', dot: 'bg-gray-400' };
-};
-
-const CourierBagCombobox = ({ bags, selectedId, onChange, isLoading }: CourierBagComboboxProps) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [highlightedIdx, setHighlightedIdx] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
-
-  const selectedBag = bags.find(b => b.itemId === selectedId) ?? null;
-
-  const filtered = search.trim()
-    ? bags.filter(b => b.itemName.toLowerCase().includes(search.toLowerCase()))
-    : bags;
-
-  const open = () => {
-    setIsOpen(true);
-    setSearch('');
-    setHighlightedIdx(0);
-    setTimeout(() => searchRef.current?.focus(), 50);
-  };
-
-  const close = () => {
-    setIsOpen(false);
-    setSearch('');
-  };
-
-  const select = (bag: CourierBag | null) => {
-    onChange(bag);
-    close();
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!isOpen) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setHighlightedIdx(i => Math.min(i + 1, filtered.length));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setHighlightedIdx(i => Math.max(i - 1, 0));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (highlightedIdx === 0) select(null);
-      else if (filtered[highlightedIdx - 1]) select(filtered[highlightedIdx - 1]);
-    } else if (e.key === 'Escape') {
-      close();
-    }
-  };
-
-  useEffect(() => {
-    if (!listRef.current) return;
-    const item = listRef.current.children[highlightedIdx] as HTMLElement;
-    item?.scrollIntoView({ block: 'nearest' });
-  }, [highlightedIdx]);
-
-  useEffect(() => {
-    const handle = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        close();
-      }
-    };
-    document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
-  }, []);
-
-  if (isLoading) {
-    return (
-      <div className="flex h-9 items-center gap-2 text-xs text-gray-500">
-        <RefreshCwIcon className="h-3.5 w-3.5 animate-spin text-teal-500" />
-        Loading bags…
-      </div>
-    );
-  }
-
-  return (
-    <div ref={containerRef} className="relative" onKeyDown={handleKeyDown}>
-      <button
-        type="button"
-        onClick={() => isOpen ? close() : open()}
-        className={`flex h-9 w-full items-center gap-2 rounded-md border px-3 text-sm transition-all bg-white
-          ${isOpen
-            ? 'border-teal-500 ring-1 ring-teal-500'
-            : selectedBag
-              ? `border-teal-300 ${getBagMeta(selectedBag.itemName).color}`
-              : 'border-gray-300 text-gray-500 hover:border-gray-400'
-          }`}
-      >
-        {selectedBag ? (
-          <>
-            <span className="text-base leading-none">{getBagMeta(selectedBag.itemName).emoji}</span>
-            <span className="flex-1 text-left text-xs font-semibold truncate">{selectedBag.itemName}</span>
-            <span className="text-xs font-mono text-gray-400 shrink-0">{selectedBag.itemCodePrefix}</span>
-          </>
-        ) : (
-          <>
-            <ShoppingBagIcon className="h-4 w-4 text-gray-400 shrink-0" />
-            <span className="flex-1 text-left text-gray-400">Select courier bag…</span>
-          </>
-        )}
-        <ChevronDownIcon className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {selectedBag && !isOpen && (
-        <div className={`mt-1.5 flex items-center justify-between rounded-lg border px-3 py-2 ${getBagMeta(selectedBag.itemName).border} ${getBagMeta(selectedBag.itemName).color}`}>
-          <div className="flex items-center gap-2 min-w-0">
-            <span className={`h-2 w-2 rounded-full shrink-0 ${getBagMeta(selectedBag.itemName).dot}`} />
-            <span className="text-xs font-semibold truncate">{selectedBag.itemName}</span>
-          </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); select(null); }}
-            className="ml-2 shrink-0 rounded-full p-0.5 hover:bg-black/10 transition-colors"
-            title="Clear selection"
-          >
-            <XIcon className="h-3 w-3" />
-          </button>
-        </div>
-      )}
-
-      {isOpen && (
-        <div className="absolute top-full left-0 z-50 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden">
-          <div className="border-b border-gray-100 p-2">
-            <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5">
-              <SearchIcon className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-              <input
-                ref={searchRef}
-                type="text"
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setHighlightedIdx(0); }}
-                placeholder="Search bags…"
-                className="flex-1 bg-transparent text-xs outline-none text-gray-700 placeholder-gray-400"
-              />
-              {search && (
-                <button onClick={() => { setSearch(''); setHighlightedIdx(0); }} className="text-gray-400 hover:text-gray-600">
-                  <XIcon className="h-3 w-3" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <ul ref={listRef} className="max-h-52 overflow-y-auto py-1">
-            <li>
-              <button
-                type="button"
-                onClick={() => select(null)}
-                className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs transition-colors
-                  ${highlightedIdx === 0 ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
-                onMouseEnter={() => setHighlightedIdx(0)}
-              >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-dashed border-gray-300 text-gray-400">
-                  <XIcon className="h-3.5 w-3.5" />
-                </span>
-                <span className="text-gray-500 italic">No bag selected</span>
-                {selectedId === null && <CheckCircleIcon className="ml-auto h-4 w-4 text-teal-500" />}
-              </button>
-            </li>
-
-            {filtered.length === 0 && (
-              <li className="px-3 py-4 text-center text-xs text-gray-400">No bags match your search.</li>
-            )}
-
-            {filtered.map((bag, idx) => {
-              const meta = getBagMeta(bag.itemName);
-              const isHighlighted = highlightedIdx === idx + 1;
-              const isSelected = selectedId === bag.itemId;
-              return (
-                <li key={bag.itemId}>
-                  <button
-                    type="button"
-                    onClick={() => select(bag)}
-                    onMouseEnter={() => setHighlightedIdx(idx + 1)}
-                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors
-                      ${isHighlighted ? 'bg-teal-50' : 'hover:bg-gray-50'}`}
-                  >
-                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-lg ${meta.border} ${meta.color}`}>
-                      {meta.emoji}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-semibold ${isSelected ? 'text-teal-700' : 'text-gray-800'}`}>
-                          {bag.itemName}
-                        </span>
-                        {isSelected && (
-                          <span className="text-[10px] font-bold bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-full">
-                            Selected
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[10px] text-gray-400 mt-0.5">
-                        Code: <span className="font-mono font-medium text-gray-500">{bag.itemCodePrefix}</span>
-                      </div>
-                    </div>
-                    {isSelected && <CheckCircleIcon className="h-4 w-4 text-teal-500 shrink-0" />}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-
-          <div className="border-t border-gray-100 bg-gray-50 px-3 py-1.5">
-            <p className="text-[10px] text-gray-400">↑↓ navigate · Enter select · Esc close</p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 
 // ─── Action Button Config ─────────────────────────────────────────────────────
 
@@ -651,6 +415,37 @@ const CustomerOrderHistoryModal = ({
   isLoading,
   statusTypes,
 }: CustomerOrderHistoryModalProps) => {
+  const [expandedDeliveryId, setExpandedDeliveryId] = useState<number | null>(null);
+  const [itemsCache, setItemsCache] = useState<Record<number, OrderDetailItem[]>>({});
+  const [loadingItemsFor, setLoadingItemsFor] = useState<number | null>(null);
+  const [itemsErrorFor, setItemsErrorFor] = useState<Record<number, string>>({});
+
+  const toggleOrderItems = async (order: DeliveryOrderResponse) => {
+    if (expandedDeliveryId === order.deliveryId) {
+      setExpandedDeliveryId(null);
+      return;
+    }
+    setExpandedDeliveryId(order.deliveryId);
+    if (itemsCache[order.deliveryId]) return;
+
+    setLoadingItemsFor(order.deliveryId);
+    setItemsErrorFor((prev) => {
+      const next = { ...prev };
+      delete next[order.deliveryId];
+      return next;
+    });
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/sales/orders/${order.orderId}/items`);
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      const data: OrderDetailItem[] = await res.json();
+      setItemsCache((prev) => ({ ...prev, [order.deliveryId]: data }));
+    } catch (err: any) {
+      setItemsErrorFor((prev) => ({ ...prev, [order.deliveryId]: err.message ?? 'Failed to load items' }));
+    } finally {
+      setLoadingItemsFor(null);
+    }
+  };
+
   if (!isOpen) return null;
 
   const sorted = [...orders].sort(
@@ -725,6 +520,10 @@ const CustomerOrderHistoryModal = ({
                 const statusLabel = statusTypes.find(s => s.statusId === order.statusId)?.statusType ?? `#${order.statusId}`;
                 const isDelivered = order.statusId === 5;
                 const isCancelled = order.statusId === 7;
+                const isExpanded = expandedDeliveryId === order.deliveryId;
+                const items = itemsCache[order.deliveryId];
+                const itemsLoading = loadingItemsFor === order.deliveryId;
+                const itemsError = itemsErrorFor[order.deliveryId];
                 return (
                   <div
                     key={order.deliveryId}
@@ -734,6 +533,12 @@ const CustomerOrderHistoryModal = ({
                         : 'border-gray-200 bg-white hover:bg-gray-50'
                     }`}
                   >
+                    <button
+                      type="button"
+                      onClick={() => toggleOrderItems(order)}
+                      className="w-full text-left"
+                      title="Click to view/hide items in this order"
+                    >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-3 flex-1 min-w-0">
                         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
@@ -780,6 +585,12 @@ const CustomerOrderHistoryModal = ({
                         <span className="text-sm font-bold text-gray-800">
                           Rs. {order.totalOrderPrice?.toFixed(2) ?? '0.00'}
                         </span>
+                        <span className="flex items-center gap-1 text-[11px] font-medium text-indigo-500">
+                          {isExpanded ? 'Hide items' : 'View items'}
+                          <ChevronDownIcon
+                            className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                          />
+                        </span>
                       </div>
                     </div>
 
@@ -805,6 +616,87 @@ const CustomerOrderHistoryModal = ({
                         </span>
                       )}
                     </div>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="mt-3 border-t border-gray-100 pt-3">
+                        {itemsLoading && (
+                          <div className="flex items-center justify-center py-4 gap-2 text-gray-400 text-xs">
+                            <RefreshCwIcon className="h-3.5 w-3.5 animate-spin text-indigo-400" />
+                            Loading items…
+                          </div>
+                        )}
+                        {itemsError && (
+                          <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
+                            Failed to load items: {itemsError}
+                          </div>
+                        )}
+                        {!itemsLoading && !itemsError && items && items.length === 0 && (
+                          <div className="text-center py-3 text-xs text-gray-400">
+                            No items found for this order.
+                          </div>
+                        )}
+                        {!itemsLoading && items && items.length > 0 && (
+                          <div className="rounded-lg border border-gray-200 overflow-hidden">
+                            <table className="min-w-full divide-y divide-gray-200">
+                              <thead className="bg-indigo-600">
+                                <tr>
+                                  <th className="px-2.5 py-1.5 text-left text-[11px] font-medium text-white">#</th>
+                                  <th className="px-2.5 py-1.5 text-left text-[11px] font-medium text-white">Item Name</th>
+                                  <th className="px-2.5 py-1.5 text-center text-[11px] font-medium text-white">Qty</th>
+                                  <th className="px-2.5 py-1.5 text-right text-[11px] font-medium text-white">Unit Price</th>
+                                  <th className="px-2.5 py-1.5 text-right text-[11px] font-medium text-white">Discount</th>
+                                  <th className="px-2.5 py-1.5 text-right text-[11px] font-medium text-white">Total</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100 bg-white">
+                                {items.map((item, iidx) => (
+                                  <tr key={item.orderDetailId} className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-2.5 py-2 text-[11px] text-gray-400">{iidx + 1}</td>
+                                    <td className="px-2.5 py-2 text-[11px] font-medium text-gray-900">{item.itemName}</td>
+                                    <td className="px-2.5 py-2 text-center text-[11px] font-semibold text-gray-700">
+                                      <span className="inline-flex items-center justify-center h-4 min-w-[1.1rem] rounded bg-gray-100 px-1 text-gray-800">
+                                        {item.quantity}
+                                      </span>
+                                    </td>
+                                    <td className="px-2.5 py-2 text-right text-[11px] text-gray-700">
+                                      {item.perItemPrice.toFixed(2)}
+                                    </td>
+                                    <td className="px-2.5 py-2 text-right text-[11px]">
+                                      {item.totalDiscountPrice > 0 ? (
+                                        <span className="text-red-500">{item.totalDiscountPrice.toFixed(2)}</span>
+                                      ) : (
+                                        <span className="text-gray-400">—</span>
+                                      )}
+                                    </td>
+                                    <td className="px-2.5 py-2 text-right text-[11px] font-bold text-indigo-700">
+                                      {item.totalItemPrice.toFixed(2)}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                                <tr>
+                                  <td colSpan={2} className="px-2.5 py-1.5 text-[11px] font-semibold text-gray-500">
+                                    {items.length} item{items.length !== 1 ? 's' : ''}
+                                  </td>
+                                  <td className="px-2.5 py-1.5 text-center text-[11px] font-semibold text-gray-500">
+                                    {items.reduce((sum, i) => sum + i.quantity, 0)}
+                                  </td>
+                                  <td></td>
+                                  <td className="px-2.5 py-1.5 text-right text-[11px] text-red-400 font-semibold">
+                                    -{items.reduce((sum, i) => sum + i.totalDiscountPrice, 0).toFixed(2)}
+                                  </td>
+                                  <td className="px-2.5 py-1.5 text-right text-[11px] font-bold text-indigo-700">
+                                    {items.reduce((sum, i) => sum + i.totalItemPrice, 0).toFixed(2)}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -948,6 +840,15 @@ const OrderActionModal = ({
   const [loadingStatusId, setLoadingStatusId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // ── Courier bag step (asked when moving Pending → Wrapping) ────────────────
+  const [showBagInput,        setShowBagInput]        = useState(false);
+  const [bagConfigChecked,    setBagConfigChecked]    = useState(false);
+  const [courierBagsEnabled,  setCourierBagsEnabled]  = useState(false);
+  const [courierBags,         setCourierBags]         = useState<CourierBag[]>([]);
+  const [isLoadingBags,       setIsLoadingBags]       = useState(false);
+  const [selectedBag,         setSelectedBag]         = useState<CourierBag | null>(null);
+  const [bagError,            setBagError]            = useState<string | null>(null);
+
   useEffect(() => {
     if (!isOpen) {
       setSpecialNote('');
@@ -959,12 +860,14 @@ const OrderActionModal = ({
       setRemarkError(null);
       setLoadingStatusId(null);
       setActionError(null);
+      setShowBagInput(false); setBagConfigChecked(false); setCourierBagsEnabled(false);
+      setCourierBags([]); setIsLoadingBags(false); setSelectedBag(null); setBagError(null);
     }
   }, [isOpen]);
 
   if (!isOpen || !order) return null;
 
-  const isAnyLoading = loadingStatusId !== null || isLoadingRemark || isSavingRemark;
+  const isAnyLoading = loadingStatusId !== null || isLoadingRemark || isSavingRemark || isLoadingBags;
 
   const isButtonDisabled = (btn: ActionButton): boolean => {
     if (isAnyLoading) return true;
@@ -1122,34 +1025,44 @@ const OrderActionModal = ({
 
     // In handleActionClick, inside the statusId === 3 block:
     if (btn.action === 'status' && btn.statusId === 3) {
-      setLoadingStatusId(3);
       setActionError(null);
-      try {
-        let trackingCode = order.orderCode?.trim() ?? '';
-        if (autoGenerateId) {
-          const res = await fetch(
-            `${API_BASE_URL}/api/sales/${order.deliveryId}/generate-tracking`,
-            { method: 'POST' }
-          );
-          if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(errText || `Server error: ${res.status}`);
+
+      // A courier bag is chosen here — at the Pending → Wrapping transition —
+      // not at order-creation time. Check (once) whether the feature is on,
+      // and if so, make sure a bag has been picked before proceeding.
+      if (!bagConfigChecked) {
+        setLoadingStatusId(3);
+        try {
+          const configRes = await fetch(`${API_BASE_URL}/api/config/courier-bags/config`);
+          const configData = configRes.ok ? await configRes.json() : null;
+          const isEnabled = configData?.isShowCourierBags === 1;
+          setCourierBagsEnabled(isEnabled);
+          setBagConfigChecked(true);
+
+          if (isEnabled) {
+            setIsLoadingBags(true);
+            const bagsRes = await fetch(`${API_BASE_URL}/api/items/courier-bags`);
+            if (bagsRes.ok) {
+              const bagsData: CourierBag[] = await bagsRes.json();
+              setCourierBags(bagsData.filter((b) => b.status === 1));
+            }
+            setIsLoadingBags(false);
+            setLoadingStatusId(null);
+            setShowBagInput(true);
+            return;
           }
-          trackingCode = await res.text();
+        } catch (err) {
+          // If the config check itself fails, don't block wrapping on it —
+          // proceed without requiring a bag.
+          setBagConfigChecked(true);
         }
-        await onAction(order, 'wrapping', 3, trackingCode);
-
-        // ← Replace window.print() with this:
-        if (isPrint) {
-          printThermalLabel(trackingCode, order.customerName);
-        }
-
-        onClose();
-      } catch (err: any) {
-        setActionError(err.message ?? 'Failed to process wrapping');
-      } finally {
         setLoadingStatusId(null);
+      } else if (courierBagsEnabled && !selectedBag) {
+        setShowBagInput(true);
+        return;
       }
+
+      await confirmWrapping();
       return;
     }
 
@@ -1165,6 +1078,60 @@ const OrderActionModal = ({
         setLoadingStatusId(null);
       }
     }
+  };
+
+  const confirmWrapping = async () => {
+    setLoadingStatusId(3); setActionError(null);
+    try {
+      const bagParams = new URLSearchParams();
+      if (selectedBag) {
+        bagParams.set('courierBagId', String(selectedBag.itemId));
+        bagParams.set('courierBagName', selectedBag.itemName);
+      }
+
+      let trackingCode = order.orderCode?.trim() ?? '';
+      if (autoGenerateId) {
+        const res = await fetch(
+          `${API_BASE_URL}/api/sales/${order.deliveryId}/generate-tracking?${bagParams.toString()}`,
+          { method: 'POST' }
+        );
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || `Server error: ${res.status}`);
+        }
+        trackingCode = await res.text();
+      } else {
+        const res = await fetch(
+          `${API_BASE_URL}/api/sales/${order.deliveryId}/wrapping?${bagParams.toString()}`,
+          { method: 'PATCH' }
+        );
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || `Server error: ${res.status}`);
+        }
+      }
+
+      await onAction(order, 'wrapping', 3, trackingCode);
+
+      if (isPrint) {
+        printThermalLabel(trackingCode, order.customerName);
+      }
+
+      onClose();
+    } catch (err: any) {
+      setActionError(err.message ?? 'Failed to process wrapping');
+    } finally {
+      setLoadingStatusId(null);
+    }
+  };
+
+  const handleConfirmBag = async () => {
+    if (courierBagsEnabled && !selectedBag) {
+      setBagError('Please select a courier bag to continue.');
+      return;
+    }
+    setShowBagInput(false);
+    await confirmWrapping();
   };
 
   const handleSaveNote = async () => {
@@ -1199,9 +1166,9 @@ const OrderActionModal = ({
       style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
       onClick={(e) => { if (e.target === e.currentTarget && !isAnyLoading) onClose(); }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
 
-        <div className="flex items-center justify-between bg-gradient-to-r from-teal-600 to-teal-700 px-5 py-4">
+        <div className="flex items-center justify-between rounded-t-2xl bg-gradient-to-r from-teal-600 to-teal-700 px-5 py-4">
           <div>
             <h3 className="text-base font-bold text-white">Order Actions</h3>
             <p className="text-xs text-teal-100 mt-0.5">
@@ -1270,7 +1237,7 @@ const OrderActionModal = ({
         )}
 
         <div className="p-5">
-          {!showNoteInput && !showRemarkInput ? (
+          {!showNoteInput && !showRemarkInput && !showBagInput ? (
             <div className="grid grid-cols-2 gap-2.5">
               {actionButtons.map((btn) => {
                 const isThisLoading = btn.action === 'status' && loadingStatusId === btn.statusId;
@@ -1320,6 +1287,36 @@ const OrderActionModal = ({
                   className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Save Note
+                </button>
+              </div>
+            </div>
+          ) : showBagInput ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <PackageIcon className="h-4 w-4 text-indigo-500" />Select Courier Bag
+              </div>
+              <p className="text-xs text-gray-500">
+                Choose the courier bag this order will be wrapped in before it moves to Wrapping.
+              </p>
+              <CourierBagCombobox
+                bags={courierBags}
+                selectedId={selectedBag?.itemId ?? null}
+                onChange={(bag) => { setSelectedBag(bag); setBagError(null); }}
+                isLoading={isLoadingBags}
+              />
+              {bagError && (
+                <p className="flex items-center gap-1 text-xs text-red-500">
+                  <AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />{bagError}
+                </p>
+              )}
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => { setShowBagInput(false); setBagError(null); }} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Back</button>
+                <button
+                  onClick={handleConfirmBag}
+                  disabled={isLoadingBags || loadingStatusId !== null}
+                  className="flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingStatusId === 3 ? <><RefreshCwIcon className="h-3.5 w-3.5 animate-spin" />Updating…</> : 'Confirm Wrapping'}
                 </button>
               </div>
             </div>
@@ -1580,13 +1577,6 @@ export function SalesPage() {
   const [autoGenerateId, setAutoGenerateId] = useState(false);
   const [isPrint, setIsPrint] = useState(false);
 
-  // ── Courier bag state ─────────────────────────────────────────────────────
-  const [showCourierBags, setShowCourierBags] = useState(false);
-  const [courierBags, setCourierBags] = useState<CourierBag[]>([]);
-  const [selectedCourierBag, setSelectedCourierBag] = useState<CourierBag | null>(null);
-  const [isLoadingCourierBags, setIsLoadingCourierBags] = useState(false);
-  const [courierBagError, setCourierBagError] = useState<string | null>(null);
-
   // ── Left Column: Customer ──
   const [phone, setPhone] = useState('');
   const [phoneTwo, setPhoneTwo] = useState('');
@@ -1607,6 +1597,15 @@ export function SalesPage() {
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
+
+  // Phone Two search (mirrors Phone One search state/refs above)
+  const [phoneTwoSuggestions, setPhoneTwoSuggestions] = useState<DeliveryOrderResponse[]>([]);
+  const [showSuggestionsTwo, setShowSuggestionsTwo] = useState(false);
+  const [activeSuggestionTwo, setActiveSuggestionTwo] = useState(-1);
+  const [isSearchingCustomerTwo, setIsSearchingCustomerTwo] = useState(false);
+  const [customerSearchErrorTwo, setCustomerSearchErrorTwo] = useState<string | null>(null);
+  const suggestionsTwoRef = useRef<HTMLDivElement>(null);
+  const phoneTwoInputRef = useRef<HTMLInputElement>(null);
 
   // ── Customer order history modal state ──
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
@@ -1717,34 +1716,6 @@ export function SalesPage() {
       }
     };
     fetchFeatureConfig();
-  }, []);
-
-  // ── Fetch courier bag config + bags ──────────────────────────────────────
-
-  useEffect(() => {
-    const fetchCourierBagData = async () => {
-      try {
-        const configRes = await fetch(`${API_BASE_URL}/api/config/courier-bags/config`);
-        if (!configRes.ok) return;
-        const configData = await configRes.json();
-        const isEnabled = configData?.isShowCourierBags === 1;
-        setShowCourierBags(isEnabled);
-
-        if (isEnabled) {
-          setIsLoadingCourierBags(true);
-          const bagsRes = await fetch(`${API_BASE_URL}/api/items/courier-bags`);
-          if (bagsRes.ok) {
-            const bagsData: CourierBag[] = await bagsRes.json();
-            setCourierBags(bagsData.filter(b => b.status === 1));
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch courier bag config:', err);
-      } finally {
-        setIsLoadingCourierBags(false);
-      }
-    };
-    fetchCourierBagData();
   }, []);
 
   // ── Fetch delivery config ─────────────────────────────────────────────────
@@ -1984,11 +1955,19 @@ export function SalesPage() {
     return allOrdersRef.current.filter((d) => {
       const key = String(d.customerId ?? d.phoneOne);
       if (seen.has(key)) return false;
-      const matches =
-        (d.phoneOne ?? '').includes(query) ||
-        (d.phoneTwo ?? '').includes(query) ||
-        (d.customerNumber ?? '').includes(query) ||
-        (d.customerName ?? '').toLowerCase().includes(lower);
+
+      // Phone One is always searched — every customer is required to have it.
+      const phoneOneMatch = (d.phoneOne ?? '').includes(query);
+
+      // Phone Two is optional, so only search it for customers who actually
+      // have a Phone Two on record; a blank Phone Two should never count as a match.
+      const hasPhoneTwo = !!(d.phoneTwo && d.phoneTwo.trim().length > 0);
+      const phoneTwoMatch = hasPhoneTwo && d.phoneTwo.includes(query);
+
+      const customerNumberMatch = (d.customerNumber ?? '').includes(query);
+      const customerNameMatch = (d.customerName ?? '').toLowerCase().includes(lower);
+
+      const matches = phoneOneMatch || phoneTwoMatch || customerNumberMatch || customerNameMatch;
       if (matches) { seen.add(key); return true; }
       return false;
     });
@@ -2033,6 +2012,10 @@ export function SalesPage() {
     setCustomerSearchError(null);
     setPhoneOneError(null);
     setPhoneTwoError(null);
+    setShowSuggestionsTwo(false);
+    setPhoneTwoSuggestions([]);
+    setActiveSuggestionTwo(-1);
+    setCustomerSearchErrorTwo(null);
   };
 
   const handlePhoneChange = (value: string) => {
@@ -2073,6 +2056,72 @@ export function SalesPage() {
     }
   };
 
+  // ── Phone Two search (mirrors Phone One search above) ──────────────────────
+  const handlePhoneTwoSearch = useCallback(async () => {
+    const query = phoneTwo.trim();
+    if (!query) return;
+    setIsSearchingCustomerTwo(true);
+    setCustomerSearchErrorTwo(null);
+    setShowSuggestionsTwo(false);
+    try {
+      await fetchAllOrdersForSearch();
+      const matched = filterSuggestions(query);
+      if (matched.length === 0) {
+        setCustomerSearchErrorTwo('No customer found for that phone / name.');
+        return;
+      }
+      if (matched.length === 1) {
+        applyCustomer(matched[0]);
+      } else {
+        setPhoneTwoSuggestions(matched);
+        setShowSuggestionsTwo(true);
+        setActiveSuggestionTwo(-1);
+      }
+    } catch (err: any) {
+      setCustomerSearchErrorTwo(err.message ?? 'Search failed');
+    } finally {
+      setIsSearchingCustomerTwo(false);
+    }
+  }, [phoneTwo, filterSuggestions, fetchAllOrdersForSearch]);
+
+  const handlePhoneTwoChange = (value: string) => {
+    setPhoneTwo(value);
+    setActiveSuggestionTwo(-1);
+    setCustomerSearchErrorTwo(null);
+    setPhoneTwoError(validatePhone(value));
+    const suggestions = filterSuggestions(value);
+    if (suggestions.length > 0) {
+      setPhoneTwoSuggestions(suggestions);
+      setShowSuggestionsTwo(true);
+    } else {
+      setPhoneTwoSuggestions([]);
+      setShowSuggestionsTwo(false);
+    }
+  };
+
+  const handleSelectSuggestionTwo = (d: DeliveryOrderResponse) => applyCustomer(d);
+
+  const handlePhoneTwoKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !showSuggestionsTwo) {
+      e.preventDefault();
+      handlePhoneTwoSearch();
+      return;
+    }
+    if (!showSuggestionsTwo) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestionTwo((prev) => Math.min(prev + 1, phoneTwoSuggestions.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestionTwo((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter' && activeSuggestionTwo >= 0) {
+      e.preventDefault();
+      handleSelectSuggestionTwo(phoneTwoSuggestions[activeSuggestionTwo]);
+    } else if (e.key === 'Escape') {
+      setShowSuggestionsTwo(false);
+    }
+  };
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (
@@ -2082,6 +2131,14 @@ export function SalesPage() {
         !phoneInputRef.current.contains(e.target as Node)
       ) {
         setShowSuggestions(false);
+      }
+      if (
+        suggestionsTwoRef.current &&
+        !suggestionsTwoRef.current.contains(e.target as Node) &&
+        phoneTwoInputRef.current &&
+        !phoneTwoInputRef.current.contains(e.target as Node)
+      ) {
+        setShowSuggestionsTwo(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -2109,10 +2166,12 @@ export function SalesPage() {
     setSaveError(null);
     setPhoneOneError(null);
     setPhoneTwoError(null);
-    setSelectedCourierBag(null);
-    setCourierBagError(null);
     setStockError(null);
     setStockDetails(null);
+    setShowSuggestionsTwo(false);
+    setPhoneTwoSuggestions([]);
+    setActiveSuggestionTwo(-1);
+    setCustomerSearchErrorTwo(null);
   };
 
   // ── Cart handlers ─────────────────────────────────────────────────────────
@@ -2249,8 +2308,8 @@ export function SalesPage() {
       paidAmount,
       paymentTypeId: resolvedPaymentTypeId,
       bussinessProfileId: selectedProfileId,
-      courierBagId: selectedCourierBag?.itemId ?? null,       // ← always included, null if none
-      courierBagName: selectedCourierBag?.itemName ?? null,   // ← always included, null if none
+      // Courier bag is intentionally NOT selected here. It's chosen later,
+      // when the order moves from Pending to Wrapping (see FilterOrderPage).
       items: apiItems,
     };
   };
@@ -2301,11 +2360,6 @@ export function SalesPage() {
 
   const handleSaveOrder = async () => {
     if (cart.length === 0) { alert('Cart is empty!'); return; }
-
-    if (showCourierBags && !selectedCourierBag) {
-      setCourierBagError('Please select a courier bag to continue.');
-      return;
-    }
 
     if (!phone.trim()) {
       setPhoneOneError('Phone One is required.');
@@ -2382,26 +2436,7 @@ export function SalesPage() {
             (pt) => pt.paymentTypeId === found.paymentTypeId
           );
           if (matchedPt) setPaymentType(matchedPt.paymentType);
-
-          // ── Step 8: restore courier bag ──────────────────────────
-          if (found.courierBagId && showCourierBags) {
-            const matchedBag = courierBags.find(b => b.itemId === found.courierBagId);
-            if (matchedBag) {
-              setSelectedCourierBag(matchedBag);
-            } else {
-              setSelectedCourierBag({
-                itemId:              found.courierBagId,
-                itemBarCode:         0,
-                itemName:            found.courierBagName ?? '',
-                itemCodePrefix:      '',
-                subItemCategoryName: '',
-                status:              1,
-              });
-            }
-          } else {
-            setSelectedCourierBag(null);
-          }
-          // ─────────────────────────────────────────────────────────
+          // Courier bag is chosen later, at the Wrapping stage — not restored/edited here.
         }
       }
     } catch (err) {
@@ -2450,8 +2485,10 @@ export function SalesPage() {
   // ── Update order status ───────────────────────────────────────────────────
 
   const handleUpdateOrderStatus = useCallback(async (order: Order, statusId: number): Promise<void> => {
+    const loggedInUserId = localStorage.getItem('userId');
+    const userIdParam = loggedInUserId ? `&userId=${loggedInUserId}` : '';
     const res = await fetch(
-      `${API_BASE_URL}/api/sales/${order.deliveryId}/status?statusId=${statusId}`,
+      `${API_BASE_URL}/api/sales/${order.deliveryId}/status?statusId=${statusId}${userIdParam}`,
       { method: 'PATCH' }
     );
     if (!res.ok) {
@@ -2507,6 +2544,7 @@ export function SalesPage() {
     { header: 'Customer Name', accessor: 'customerName' },
     { header: 'Phone One', accessor: 'phoneOne' },
     { header: 'Phone Two', accessor: 'phoneTwo' },
+    { header: 'Address', accessor: 'address' },
     { header: 'COD', accessor: (row) => `${row.cod.toFixed(2)}` },
     { header: 'Total Amount', accessor: (row) => `${row.totalAmount.toFixed(2)}`, className: 'font-semibold' },
     { header: 'Order Type', accessor: 'orderType' },
@@ -2699,27 +2737,71 @@ export function SalesPage() {
 
               <div className="flex gap-3 items-start">
                 <label className="w-36 shrink-0 text-xs font-medium text-gray-600 leading-9">Phone Two</label>
-                <div className="flex-1 min-w-0">
-                  <input
-                    type="text"
-                    value={phoneTwo}
-                    onChange={(e) => {
-                      setPhoneTwo(e.target.value);
-                      setPhoneTwoError(validatePhone(e.target.value));
-                    }}
-                    placeholder="Optional — 10 digits if entered"
-                    maxLength={15}
-                    className={`h-9 w-full rounded-md border px-3 py-1 text-sm focus:outline-none focus:ring-1 bg-white ${
-                      phoneTwoError
-                        ? 'border-red-400 focus:border-red-400 focus:ring-red-400'
-                        : 'border-gray-300 focus:border-teal-500 focus:ring-teal-500'
-                    }`}
-                  />
+                <div className="relative flex flex-1 min-w-0 flex-col gap-1">
+                  <div className="flex">
+                    <input
+                      ref={phoneTwoInputRef}
+                      type="text"
+                      value={phoneTwo}
+                      onChange={(e) => handlePhoneTwoChange(e.target.value)}
+                      onKeyDown={handlePhoneTwoKeyDown}
+                      placeholder="Optional — 10 digits if entered"
+                      autoComplete="off"
+                      maxLength={15}
+                      className={`h-9 w-full rounded-l-md border px-3 py-1 text-sm focus:outline-none focus:ring-1 bg-white ${
+                        phoneTwoError
+                          ? 'border-red-400 focus:border-red-400 focus:ring-red-400'
+                          : 'border-gray-300 focus:border-teal-500 focus:ring-teal-500'
+                      }`}
+                    />
+                    <button
+                      onClick={handlePhoneTwoSearch}
+                      disabled={isSearchingCustomerTwo || !phoneTwo.trim()}
+                      className="flex h-9 shrink-0 items-center justify-center rounded-r-md bg-teal-600 px-3 text-white hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSearchingCustomerTwo
+                        ? <RefreshCwIcon className="h-4 w-4 animate-spin" />
+                        : <SearchIcon className="h-4 w-4" />}
+                    </button>
+                  </div>
+
                   {phoneTwoError && (
-                    <p className="mt-0.5 text-xs text-red-500 flex items-center gap-1">
+                    <p className="text-xs text-red-500 flex items-center gap-1">
                       <AlertCircleIcon className="h-3 w-3 shrink-0" />
                       {phoneTwoError}
                     </p>
+                  )}
+
+                  {customerSearchErrorTwo && !phoneTwoError && (
+                    <p className="text-xs text-red-500">{customerSearchErrorTwo}</p>
+                  )}
+
+                  {showSuggestionsTwo && (
+                    <div
+                      ref={suggestionsTwoRef}
+                      className="absolute top-full left-0 z-50 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden max-h-56 overflow-y-auto"
+                    >
+                      {phoneTwoSuggestions.map((d, index) => (
+                        <div
+                          key={d.customerId ?? d.phoneOne}
+                          onMouseDown={() => handleSelectSuggestionTwo(d)}
+                          className={`flex flex-col px-3 py-2 cursor-pointer transition-colors ${
+                            index === activeSuggestionTwo
+                              ? 'bg-teal-50 border-l-2 border-teal-500'
+                              : 'hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-gray-900 truncate">{d.customerName}</span>
+                            <span className="text-xs font-mono text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded shrink-0">{d.phoneTwo || d.phoneOne}</span>
+                          </div>
+                          <span className="text-xs text-gray-500 mt-0.5 truncate">{d.address || d.customerNumber}</span>
+                        </div>
+                      ))}
+                      <div className="px-3 py-1.5 text-xs text-gray-400 bg-gray-50 border-t border-gray-100 sticky bottom-0">
+                        ↑↓ navigate · Enter to select · Esc to close
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -2798,30 +2880,6 @@ export function SalesPage() {
                   </select>
                 )}
               </FieldRow>
-
-              {/* ── Courier Bag Combobox ── */}
-              {showCourierBags && (
-                <div className="flex gap-3 items-start">
-                  <label className="w-36 shrink-0 text-xs font-medium text-gray-600 leading-9 flex items-center gap-1">
-                    <ShoppingBagIcon className="h-3 w-3 text-teal-500" />
-                    Courier Bag
-                  </label>
-                  <div className="flex-1 min-w-0">
-                    <CourierBagCombobox
-                      bags={courierBags}
-                      selectedId={selectedCourierBag?.itemId ?? null}
-                      onChange={(bag) => { setSelectedCourierBag(bag); setCourierBagError(null); }}
-                      isLoading={isLoadingCourierBags}
-                    />
-                    {courierBagError && (
-                      <p className="mt-1.5 flex items-center gap-1 text-xs text-red-500">
-                        <AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />
-                        {courierBagError}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
 
               <FieldRow label="Category">
                 {isLoadingItems ? (
@@ -3213,32 +3271,6 @@ export function SalesPage() {
                     {deliveryFee.toFixed(2)}
                   </span>
                 </div>
-
-                {/* ── Courier Bag summary line ── */}
-                {showCourierBags && (
-                  <div className="flex justify-between items-center text-sm border-t border-teal-200 pt-2">
-                    <span className="font-medium text-teal-700 flex items-center gap-1.5">
-                      <ShoppingBagIcon className="h-3.5 w-3.5" />
-                      Courier Bag :
-                    </span>
-                    {selectedCourierBag ? (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold text-teal-800">
-                          {selectedCourierBag.itemName}
-                        </span>
-                        <button
-                          onClick={() => setSelectedCourierBag(null)}
-                          className="text-teal-400 hover:text-teal-600 transition-colors"
-                          title="Remove bag"
-                        >
-                          <XIcon className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-400 italic">None selected</span>
-                    )}
-                  </div>
-                )}
 
                 <div className="pt-3 border-t border-teal-200 flex justify-between items-center text-base">
                   <span className="font-bold text-red-600">Grand Total :</span>

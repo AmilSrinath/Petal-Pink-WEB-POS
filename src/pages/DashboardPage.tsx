@@ -53,6 +53,56 @@ function getMonthRange(offset) {
   return { label, startDate: toISO(start), endDate: toISO(end) };
 }
 
+// ── Item Sales period tabs ────────────────────────────────────────────────────
+// 'today' is seeded from the /dashboard/summary response (no extra request).
+// Every other period is fetched lazily (on first tab click) from
+// GET /api/dashboard/item-sales?startDate=...&endDate=...
+const ITEM_SALES_PERIODS = [
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'dayBeforeYesterday', label: 'Day Before Yesterday' },
+  { key: 'last7', label: 'Last 7 Days' },
+  { key: 'last14', label: 'Last 14 Days' },
+  { key: 'last28', label: 'Last 28 Days' },
+  { key: 'last3months', label: 'Last 3 Months' },
+];
+
+// Returns { startDate, endDate } (ISO yyyy-MM-dd, inclusive) for a period key.
+function getItemSalesPeriodRange(key) {
+  const toISO = (d) => d.toISOString().split('T')[0];
+  const today = new Date();
+  const daysAgo = (n) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - n);
+    return d;
+  };
+
+  switch (key) {
+    case 'yesterday': {
+      const d = daysAgo(1);
+      return { startDate: toISO(d), endDate: toISO(d) };
+    }
+    case 'dayBeforeYesterday': {
+      const d = daysAgo(2);
+      return { startDate: toISO(d), endDate: toISO(d) };
+    }
+    case 'last7':
+      return { startDate: toISO(daysAgo(6)), endDate: toISO(today) };
+    case 'last14':
+      return { startDate: toISO(daysAgo(13)), endDate: toISO(today) };
+    case 'last28':
+      return { startDate: toISO(daysAgo(27)), endDate: toISO(today) };
+    case 'last3months': {
+      const start = new Date(today);
+      start.setMonth(start.getMonth() - 3);
+      return { startDate: toISO(start), endDate: toISO(today) };
+    }
+    case 'today':
+    default:
+      return { startDate: toISO(today), endDate: toISO(today) };
+  }
+}
+
 function Skeleton({ className = '' }) {
   return <div className={`animate-pulse rounded bg-gray-200 ${className}`} aria-hidden="true" />;
 }
@@ -80,8 +130,49 @@ function KpiCard({ name, value, icon: Icon, color, loading, error }) {
   );
 }
 
-// ── Today's Item Sale Count Panel ─────────────────────────────────────────────
-function TodayItemSalesPanel({ items, loading, error }) {
+// ── Item Sale Count Panel (Today / Yesterday / Last N Days / Last 3 Months) ──
+function ItemSalesPanel({ todayItems, todayLoading, todayError }) {
+  const [activeKey, setActiveKey]   = useState('today');
+  const [cache, setCache]           = useState({});     // periodKey -> items[]
+  const [loadingMap, setLoadingMap] = useState({});      // periodKey -> bool
+  const [errorMap, setErrorMap]     = useState({});      // periodKey -> string|null
+
+  // Seed the "today" tab from the already-loaded dashboard summary — no extra request.
+  useEffect(() => {
+    if (!todayLoading && !todayError) {
+      setCache((prev) => (prev.today ? prev : { ...prev, today: todayItems }));
+    }
+  }, [todayItems, todayLoading, todayError]);
+
+  const fetchPeriod = async (key) => {
+    if (key === 'today' || cache[key] || loadingMap[key]) return;
+    setLoadingMap((prev) => ({ ...prev, [key]: true }));
+    setErrorMap((prev) => ({ ...prev, [key]: null }));
+    try {
+      const { startDate, endDate } = getItemSalesPeriodRange(key);
+      const res = await fetch(
+        `${API_BASE}/dashboard/item-sales?startDate=${startDate}&endDate=${endDate}`
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setCache((prev) => ({ ...prev, [key]: json }));
+    } catch (err) {
+      setErrorMap((prev) => ({ ...prev, [key]: err.message }));
+    } finally {
+      setLoadingMap((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const handleTabClick = (key) => {
+    setActiveKey(key);
+    fetchPeriod(key);
+  };
+
+  const activeLabel = ITEM_SALES_PERIODS.find((p) => p.key === activeKey)?.label ?? 'Today';
+  const items   = activeKey === 'today' ? (cache.today ?? todayItems) : (cache[activeKey] ?? []);
+  const loading = activeKey === 'today' ? todayLoading : !!loadingMap[activeKey];
+  const error   = activeKey === 'today' ? todayError : errorMap[activeKey];
+
   const totalUnits = items.reduce((sum, r) => sum + (r.totalQuantitySold ?? 0), 0);
   const maxQty     = items.length > 0 ? items[0].totalQuantitySold : 1; // items sorted DESC
 
@@ -92,7 +183,7 @@ function TodayItemSalesPanel({ items, loading, error }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <PackageIcon className="h-5 w-5 text-teal-500" />
-            <h3 className="text-lg font-medium text-gray-900">Today's Item Sales</h3>
+            <h3 className="text-lg font-medium text-gray-900">Item Sales — {activeLabel}</h3>
             {!loading && !error && items.length > 0 && (
               <span className="inline-flex items-center rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-700">
                 {items.length} item{items.length !== 1 ? 's' : ''}
@@ -104,6 +195,34 @@ function TodayItemSalesPanel({ items, loading, error }) {
               {totalUnits} units sold
             </span>
           )}
+        </div>
+
+        {/* Period tabs */}
+        <div className="mt-3 flex flex-wrap gap-1">
+          {ITEM_SALES_PERIODS.map(({ key, label }) => {
+            const tabLoading = key === 'today' ? todayLoading : !!loadingMap[key];
+            const tabItems   = key === 'today' ? (cache.today ?? todayItems) : (cache[key] ?? []);
+            return (
+              <button
+                key={key}
+                onClick={() => handleTabClick(key)}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  activeKey === key
+                    ? 'bg-teal-500 text-white shadow-sm'
+                    : 'text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                {label}
+                {!tabLoading && tabItems.length > 0 && (
+                  <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-semibold leading-none ${
+                    activeKey === key ? 'bg-white/25 text-white' : 'bg-teal-100 text-teal-700'
+                  }`}>
+                    {tabItems.length}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -143,7 +262,7 @@ function TodayItemSalesPanel({ items, loading, error }) {
                   ? (
                     <tr>
                       <td colSpan={4} className="px-6 py-10 text-center text-sm text-gray-400">
-                        No items sold today yet.
+                        No items sold {activeKey === 'today' ? 'today yet' : `in this period`}.
                       </td>
                     </tr>
                   )
@@ -190,7 +309,7 @@ function TodayItemSalesPanel({ items, loading, error }) {
       {/* Footer */}
       {!loading && !error && items.length > 0 && (
         <div className="border-t border-gray-100 px-6 py-2 text-xs text-gray-400">
-          Showing {items.length} item{items.length !== 1 ? 's' : ''} sold today
+          Showing {items.length} item{items.length !== 1 ? 's' : ''} sold ({activeLabel})
         </div>
       )}
     </div>
@@ -559,11 +678,11 @@ export function DashboardPage() {
 
       </div>
 
-      {/* ── Today's Item Sale Counts (full width) ───────────────────────────── */}
-      <TodayItemSalesPanel
-        items={itemSaleCounts}
-        loading={summaryLoading}
-        error={summaryError}
+      {/* ── Item Sale Counts by period (full width) ─────────────────────────── */}
+      <ItemSalesPanel
+        todayItems={itemSaleCounts}
+        todayLoading={summaryLoading}
+        todayError={summaryError}
       />
 
     </div>

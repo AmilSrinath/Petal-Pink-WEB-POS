@@ -22,6 +22,7 @@ import {
   AlertTriangleIcon,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { CourierBagCombobox, CourierBag } from '../components/CourierBagCombobox';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -147,8 +148,8 @@ const isStatusButtonAllowed = (currentStatusId: number, targetStatusId: number):
   if (currentStatusId === 2 && targetStatusId === 7) return true;
   const allowedTransitions: Record<number, number[]> = {
     2:  [3, 7],
-    3:  [4],
-    4:  [5, 16],
+    3:  [4, 7],
+    4:  [5, 12, 16],
     12: [6],
   };
   return (allowedTransitions[currentStatusId] ?? []).includes(targetStatusId);
@@ -222,17 +223,28 @@ const OrderActionModal = ({
   const [loadingStatusId, setLoadingStatusId] = useState<number | null>(null);
   const [actionError,     setActionError]     = useState<string | null>(null);
 
+  // ── Courier bag step (asked when moving Pending → Wrapping) ────────────────
+  const [showBagInput,        setShowBagInput]        = useState(false);
+  const [bagConfigChecked,    setBagConfigChecked]    = useState(false);
+  const [courierBagsEnabled,  setCourierBagsEnabled]  = useState(false);
+  const [courierBags,         setCourierBags]         = useState<CourierBag[]>([]);
+  const [isLoadingBags,       setIsLoadingBags]       = useState(false);
+  const [selectedBag,         setSelectedBag]         = useState<CourierBag | null>(null);
+  const [bagError,            setBagError]            = useState<string | null>(null);
+
   useEffect(() => {
     if (!isOpen) {
       setSpecialNote(''); setShowNoteInput(false); setShowRemarkInput(false);
       setRemarkText(''); setIsLoadingRemark(false); setIsSavingRemark(false);
       setRemarkError(null); setLoadingStatusId(null); setActionError(null);
+      setShowBagInput(false); setBagConfigChecked(false); setCourierBagsEnabled(false);
+      setCourierBags([]); setIsLoadingBags(false); setSelectedBag(null); setBagError(null);
     }
   }, [isOpen]);
 
   if (!isOpen || !order) return null;
 
-  const isAnyLoading = loadingStatusId !== null || isLoadingRemark || isSavingRemark;
+  const isAnyLoading = loadingStatusId !== null || isLoadingRemark || isSavingRemark || isLoadingBags;
 
   const isButtonDisabled = (btn: ActionButton): boolean => {
     if (isAnyLoading) return true;
@@ -275,20 +287,44 @@ const OrderActionModal = ({
     if (btn.action === 'edit') { await onAction(order, 'edit'); onClose(); return; }
 
     if (btn.action === 'status' && btn.statusId === 3) {
-      setLoadingStatusId(3); setActionError(null);
-      try {
-        let trackingCode = order.orderCode?.trim() ?? '';
-        if (autoGenerateId) {
-          const res = await fetch(`${API_BASE_URL}/api/sales/${order.deliveryId}/generate-tracking`, { method: 'POST' });
-          if (!res.ok) { const t = await res.text(); throw new Error(t || `Server error: ${res.status}`); }
-          trackingCode = await res.text();
+      setActionError(null);
+
+      // A courier bag is chosen here — at the Pending → Wrapping transition —
+      // not at order-creation time. Check (once) whether the feature is on,
+      // and if so, make sure a bag has been picked before proceeding.
+      if (!bagConfigChecked) {
+        setLoadingStatusId(3);
+        try {
+          const configRes = await fetch(`${API_BASE_URL}/api/config/courier-bags/config`);
+          const configData = configRes.ok ? await configRes.json() : null;
+          const isEnabled = configData?.isShowCourierBags === 1;
+          setCourierBagsEnabled(isEnabled);
+          setBagConfigChecked(true);
+
+          if (isEnabled) {
+            setIsLoadingBags(true);
+            const bagsRes = await fetch(`${API_BASE_URL}/api/items/courier-bags`);
+            if (bagsRes.ok) {
+              const bagsData: CourierBag[] = await bagsRes.json();
+              setCourierBags(bagsData.filter((b) => b.status === 1));
+            }
+            setIsLoadingBags(false);
+            setLoadingStatusId(null);
+            setShowBagInput(true);
+            return;
+          }
+        } catch (err) {
+          // If the config check itself fails, don't block wrapping on it —
+          // proceed without requiring a bag.
+          setBagConfigChecked(true);
         }
-        await onAction(order, 'wrapping', 3, trackingCode);
-        if (isPrint) window.print();
-        onClose();
-      } catch (err: any) {
-        setActionError(err.message ?? 'Failed to process wrapping');
-      } finally { setLoadingStatusId(null); }
+        setLoadingStatusId(null);
+      } else if (courierBagsEnabled && !selectedBag) {
+        setShowBagInput(true);
+        return;
+      }
+
+      await confirmWrapping();
       return;
     }
 
@@ -300,6 +336,48 @@ const OrderActionModal = ({
         setActionError(err.message ?? 'Failed to update status');
       } finally { setLoadingStatusId(null); }
     }
+  };
+
+  const confirmWrapping = async () => {
+    setLoadingStatusId(3); setActionError(null);
+    try {
+      const bagParams = new URLSearchParams();
+      if (selectedBag) {
+        bagParams.set('courierBagId', String(selectedBag.itemId));
+        bagParams.set('courierBagName', selectedBag.itemName);
+      }
+
+      let trackingCode = order.orderCode?.trim() ?? '';
+      if (autoGenerateId) {
+        const res = await fetch(
+          `${API_BASE_URL}/api/sales/${order.deliveryId}/generate-tracking?${bagParams.toString()}`,
+          { method: 'POST' }
+        );
+        if (!res.ok) { const t = await res.text(); throw new Error(t || `Server error: ${res.status}`); }
+        trackingCode = await res.text();
+      } else {
+        const res = await fetch(
+          `${API_BASE_URL}/api/sales/${order.deliveryId}/wrapping?${bagParams.toString()}`,
+          { method: 'PATCH' }
+        );
+        if (!res.ok) { const t = await res.text(); throw new Error(t || `Server error: ${res.status}`); }
+      }
+
+      await onAction(order, 'wrapping', 3, trackingCode);
+      if (isPrint) window.print();
+      onClose();
+    } catch (err: any) {
+      setActionError(err.message ?? 'Failed to process wrapping');
+    } finally { setLoadingStatusId(null); }
+  };
+
+  const handleConfirmBag = async () => {
+    if (courierBagsEnabled && !selectedBag) {
+      setBagError('Please select a courier bag to continue.');
+      return;
+    }
+    setShowBagInput(false);
+    await confirmWrapping();
   };
 
   const handleSaveNote = async () => { await onAction(order, 'special_note', undefined, specialNote); onClose(); };
@@ -371,7 +449,7 @@ const OrderActionModal = ({
         )}
 
         <div className="p-5">
-          {!showNoteInput && !showRemarkInput ? (
+          {!showNoteInput && !showRemarkInput && !showBagInput ? (
             <div className="grid grid-cols-2 gap-2.5">
               {actionButtons.map((btn) => {
                 const isThisLoading = btn.action === 'status' && loadingStatusId === btn.statusId;
@@ -399,6 +477,36 @@ const OrderActionModal = ({
               <div className="flex gap-2 justify-end">
                 <button onClick={() => setShowNoteInput(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Back</button>
                 <button onClick={handleSaveNote} disabled={!specialNote.trim()} className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed">Save Note</button>
+              </div>
+            </div>
+          ) : showBagInput ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <PackageIcon className="h-4 w-4 text-indigo-500" />Select Courier Bag
+              </div>
+              <p className="text-xs text-gray-500">
+                Choose the courier bag this order will be wrapped in before it moves to Wrapping.
+              </p>
+              <CourierBagCombobox
+                bags={courierBags}
+                selectedId={selectedBag?.itemId ?? null}
+                onChange={(bag) => { setSelectedBag(bag); setBagError(null); }}
+                isLoading={isLoadingBags}
+              />
+              {bagError && (
+                <p className="flex items-center gap-1 text-xs text-red-500">
+                  <AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />{bagError}
+                </p>
+              )}
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => { setShowBagInput(false); setBagError(null); }} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Back</button>
+                <button
+                  onClick={handleConfirmBag}
+                  disabled={isLoadingBags || loadingStatusId !== null}
+                  className="flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingStatusId === 3 ? <><RefreshCwIcon className="h-3.5 w-3.5 animate-spin" />Updating…</> : 'Confirm Wrapping'}
+                </button>
               </div>
             </div>
           ) : showRemarkInput ? (
@@ -800,25 +908,83 @@ export function FilterOrderPage() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      const orderDate = new Date(order.createdDate);
-      if (debouncedOrderCode    && !order.billNo?.toLowerCase().includes(debouncedOrderCode.toLowerCase()))            return false;
-      if (debouncedCustomerCode && !order.customerNumber?.toLowerCase().includes(debouncedCustomerCode.toLowerCase())) return false;
+
+      // Get YYYY-MM-DD only
+      const orderDate = String(order.createdDate).substring(0, 10);
+
+      if (
+        debouncedOrderCode &&
+        !order.billNo?.toLowerCase().includes(debouncedOrderCode.toLowerCase())
+      ) {
+        return false;
+      }
+
+      if (
+        debouncedCustomerCode &&
+        !order.customerNumber
+          ?.toLowerCase()
+          .includes(debouncedCustomerCode.toLowerCase())
+      ) {
+        return false;
+      }
+
       if (!isCodeSearch) {
-        if (filters.from && orderDate < new Date(filters.from)) return false;
+
+        // From date
+        if (filters.from) {
+          const fromDate = filters.from; // YYYY-MM-DD
+
+          if (orderDate < fromDate) {
+            return false;
+          }
+        }
+
+        // To date
         if (filters.to) {
-          const toDate = new Date(filters.to);
-          toDate.setHours(23, 59, 59, 999);
-          if (orderDate > toDate) return false;
+          const toDate = filters.to; // YYYY-MM-DD
+
+          if (orderDate > toDate) {
+            return false;
+          }
         }
       }
-      if (filters.paymentType && String(order.paymentTypeId) !== filters.paymentType) return false;
-      if (filters.status      && String(order.statusId)       !== filters.status)      return false;
-      if (filters.orderType) {
-        if (!order.orderType || order.orderType.toLowerCase() !== filters.orderType.toLowerCase()) return false;
+
+      if (
+        filters.paymentType &&
+        String(order.paymentTypeId) !== filters.paymentType
+      ) {
+        return false;
       }
+
+      if (
+        filters.status &&
+        String(order.statusId) !== filters.status
+      ) {
+        return false;
+      }
+
+      if (filters.orderType) {
+        if (
+          !order.orderType ||
+          order.orderType.toLowerCase() !== filters.orderType.toLowerCase()
+        ) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [orders, debouncedOrderCode, debouncedCustomerCode, isCodeSearch, filters.from, filters.to, filters.paymentType, filters.status, filters.orderType]);
+  }, [
+    orders,
+    debouncedOrderCode,
+    debouncedCustomerCode,
+    isCodeSearch,
+    filters.from,
+    filters.to,
+    filters.paymentType,
+    filters.status,
+    filters.orderType
+  ]);
 
   const wrappingOrders = useMemo(() => filteredOrders.filter((o) => o.statusId === 3), [filteredOrders]);
 
@@ -852,8 +1018,10 @@ export function FilterOrderPage() {
     }
 
     if (action === 'status' && statusId !== undefined) {
+      const loggedInUserId = localStorage.getItem('userId');
+      const userIdParam = loggedInUserId ? `&userId=${loggedInUserId}` : '';
       const res = await fetch(
-        `${API_BASE_URL}/api/sales/${order.deliveryId}/status?statusId=${statusId}`,
+        `${API_BASE_URL}/api/sales/${order.deliveryId}/status?statusId=${statusId}${userIdParam}`,
         { method: 'PATCH' }
       );
       if (!res.ok) {
@@ -889,10 +1057,12 @@ export function FilterOrderPage() {
 
     showToast('loading', `Saved! Updating ${wrappingOrders.length} orders to Despatch...`);
 
+    const loggedInUserId = localStorage.getItem('userId');
+    const userIdParam = loggedInUserId ? `&userId=${loggedInUserId}` : '';
     const results = await Promise.allSettled(
       wrappingOrders.map((o) => {
         const id = o.deliveryId ?? o.orderId;
-        return fetch(`${API_BASE_URL}/api/sales/${id}/status?statusId=4`, { method: 'PATCH' });
+        return fetch(`${API_BASE_URL}/api/sales/${id}/status?statusId=4${userIdParam}`, { method: 'PATCH' });
       })
     );
 
@@ -1039,7 +1209,7 @@ export function FilterOrderPage() {
         </span>
       ),
     },
-    { header: 'Date',       accessor: (row) => new Date(row.createdDate).toLocaleDateString() },
+    { header: 'Date',       accessor: (row) => row.createdDate ? row.createdDate.split('T')[0] : '-' },
     { header: 'Order Type', accessor: (row) => row.orderType ?? '-' },
     {
       header: 'Actions',

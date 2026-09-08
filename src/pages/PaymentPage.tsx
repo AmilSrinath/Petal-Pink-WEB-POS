@@ -64,6 +64,7 @@ export function PaymentPage() {
   const [paymentTypes, setPaymentTypes] = useState<PaymentType[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
 
   const [filters, setFilters] = useState<Filters>({
     orderCode: '',
@@ -80,6 +81,11 @@ export function PaymentPage() {
 
   // Guard: prevents a second search firing while one is already running
   const isSearchingRef = useRef(false);
+
+  // Cache of the full payment history, used for order-code search so we
+  // don't hit the server with a "from 2020" query on every keystroke/search.
+  const allPaymentsRef = useRef<PaymentRecord[]>([]);
+  const allPaymentsLoadingRef = useRef<Promise<PaymentRecord[]> | null>(null);
 
   // Fetch payment status types once on mount
   useEffect(() => {
@@ -160,21 +166,42 @@ export function PaymentPage() {
     }
   }, []);
 
-  // Fetch wide range then filter client-side by order code
+  // Load the full payment history once and cache it in a ref. Subsequent
+  // order-code searches reuse this cache instead of re-fetching everything
+  // from the server every time — that repeated wide fetch was what made
+  // order-code search so slow.
+  const fetchAllPaymentsOnce = useCallback(async (): Promise<PaymentRecord[]> => {
+    if (allPaymentsRef.current.length > 0) return allPaymentsRef.current;
+    if (allPaymentsLoadingRef.current) return allPaymentsLoadingRef.current;
+
+    const wideFrom = '2020-01-01';
+    const wideTo = new Date().toISOString().split('T')[0];
+
+    const loadPromise = fetch(`${API_BASE_URL}/api/payment-report?from=${wideFrom}&to=${wideTo}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Server error: ${res.status} ${res.statusText}`);
+        return res.json() as Promise<PaymentRecord[]>;
+      })
+      .then((data) => {
+        allPaymentsRef.current = data;
+        return data;
+      })
+      .finally(() => {
+        allPaymentsLoadingRef.current = null;
+      });
+
+    allPaymentsLoadingRef.current = loadPromise;
+    return loadPromise;
+  }, []);
+
+  // Search by order code using the cached full history (fetched once, reused after).
   const fetchPaymentsByOrderCode = useCallback(async (orderCode: string) => {
     setLoading(true);
     setError(null);
     try {
-      const wideFrom = '2020-01-01';
-      const wideTo = new Date().toISOString().split('T')[0];
-      const res = await fetch(
-        `${API_BASE_URL}/api/payment-report?from=${wideFrom}&to=${wideTo}`
-      );
-      if (!res.ok) throw new Error(`Server error: ${res.status} ${res.statusText}`);
-      const data: PaymentRecord[] = await res.json();
-      const matched = data.filter((p) =>
-        p.orderCode?.toLowerCase().includes(orderCode.toLowerCase())
-      );
+      const data = await fetchAllPaymentsOnce();
+      const needle = orderCode.toLowerCase();
+      const matched = data.filter((p) => p.orderCode?.toLowerCase().includes(needle));
       setPayments(matched);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch payments');
@@ -183,7 +210,7 @@ export function PaymentPage() {
       setLoading(false);
       isSearchingRef.current = false;
     }
-  }, []);
+  }, [fetchAllPaymentsOnce]);
 
   // Unified search — reads orderCode from ref so it's always fresh
   const handleSearch = useCallback(
@@ -211,6 +238,8 @@ export function PaymentPage() {
         { method: 'PUT' }
       );
       if (!res.ok) throw new Error('Failed to update status');
+      // Invalidate the cached history so the next order-code search reflects the update.
+      allPaymentsRef.current = [];
       handleSearch();
     } catch (err) {
       alert('Error updating payment status');
@@ -238,6 +267,14 @@ export function PaymentPage() {
     fetchPaymentsByDate(filters.from, filters.to);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Warm the order-code search cache in the background so the first search
+  // is fast too, not just the second one.
+  useEffect(() => {
+    fetchAllPaymentsOnce().catch(() => {
+      // silently ignore — a real search will retry and surface the error
+    });
+  }, [fetchAllPaymentsOnce]);
+
   // Apply remaining client-side filters (paymentType, paymentStatus)
   const filtered = payments.filter((p) => {
     if (filters.paymentType && String(p.paymentTypeId) !== filters.paymentType)
@@ -246,6 +283,8 @@ export function PaymentPage() {
       return false;
     return true;
   });
+
+  const selectedPayment = filtered.find((p) => p.paymentId === selectedPaymentId) ?? null;
 
   const paidCount = filtered.filter(
     (p) =>
@@ -412,7 +451,12 @@ export function PaymentPage() {
         </div>
       ) : (
         <div className="flex-1 overflow-auto rounded-lg border border-gray-200">
-          <DataTable columns={columns} data={filtered} />
+          <DataTable
+            columns={columns}
+            data={filtered}
+            selectedRow={selectedPayment}
+            onRowClick={(row) => setSelectedPaymentId(row.paymentId)}
+          />
         </div>
       )}
     </div>

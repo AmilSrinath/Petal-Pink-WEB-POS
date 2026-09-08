@@ -17,7 +17,8 @@ import {
   GlobeIcon,
   ChevronDownIcon,
   MenuIcon,
-  XIcon
+  XIcon,
+  ScanLineIcon
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -37,8 +38,13 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
       icon: LayoutDashboardIcon
     },
     {
+      path: '/pos',
+      label: 'POS',
+      icon: ScanLineIcon
+    },
+    {
       path: '/sales',
-      label: 'Sales',
+      label: 'Delivery Order',
       icon: ShoppingCartIcon
     },
     {
@@ -127,6 +133,9 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
         { path: '/employee/user-role-manage', label: 'User Role Manage' },
         { path: '/employee/employee-designation', label: 'Employee Designation' },
         { path: '/employee/employee-title', label: 'Employee Title' },
+        { path: '/employee/employee-attendance', label: 'Employee Attendance' },
+        { path: '/employee/employee-attendance-history', label: 'Attendance History' },
+        { path: '/employee/employee-salary', label: 'Employee Salary' },
       ]
     },
     {
@@ -139,7 +148,8 @@ export function Sidebar({ onLogout, isCollapsed, onToggleCollapse }: SidebarProp
       label: 'Reports',
       icon: BarChartIcon,
       submenu: [
-        { path: '/reports/duration-sales', label: 'Duration Sales Report' }
+        { path: '/reports/duration-sales', label: 'Duration Sales Report' },
+        { path: '/reports/employee-attendance', label: 'Attendance Report' }
       ]
     },
     {
