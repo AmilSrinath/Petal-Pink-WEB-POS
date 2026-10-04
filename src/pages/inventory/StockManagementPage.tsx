@@ -10,6 +10,22 @@ interface StockMaster {
   itemCodePrefix: string | null;
   qty: number;
   status: number;
+  mainItemCategoryId?: number | null;
+  mainItemCategoryName?: string | null;
+  subItemCategoryId?: number | null;
+  subItemCategoryName?: string | null;
+  categoryName?: string | null;
+}
+
+interface Category {
+  mainItemCategoryId: number;
+  mainItemCategoryName: string;
+}
+
+interface SubCategory {
+  subItemCategoryId: number;
+  mainItemCategoryId: number;
+  subItemCategoryName: string;
 }
 
 interface StockDetail {
@@ -127,6 +143,17 @@ const api = {
   getStockAdjTypes: (): Promise<StockAdjType[]> =>
     fetch(`${API_BASE_URL}/api/stock-adj-types`)
       .then(r => { if (!r.ok) throw new Error(); return r.json(); }),
+
+  getCategories: (): Promise<Category[]> =>
+    fetch(`${API_BASE_URL}/api/categories`)
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); }),
+
+  getSubCategories: (): Promise<SubCategory[]> =>
+    fetch(`${API_BASE_URL}/api/sub-categories`)
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); }),
+
+  getCatalogItems: (): Promise<any[]> =>
+    fetch(`${API_BASE_URL}/api/items`).then(r => { if (!r.ok) return []; return r.json(); }),
 
   addStock: (payload: StockAdjustmentPayload): Promise<string> =>
     fetch(`${BASE}/add`, {
@@ -282,12 +309,50 @@ function ItemSearchInput({ items, selectedId, onSelect }: { items: Item[]; selec
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ stocks, details }: { stocks: StockMaster[]; details: StockDetail[] }) {
+function OverviewTab({
+  stocks,
+  details,
+  categories,
+  subCategories,
+}: {
+  stocks: StockMaster[];
+  details: StockDetail[];
+  categories: Category[];
+  subCategories: SubCategory[];
+}) {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedSubCategory, setSelectedSubCategory] = useState<string>('all');
 
-  const counts    = stocks.reduce<Record<string, number>>((acc, s) => { const lbl = getStockStatus(s.qty).label; acc[lbl] = (acc[lbl] || 0) + 1; return acc; }, {});
+  const counts = stocks.reduce<Record<string, number>>((acc, s) => {
+    const lbl = getStockStatus(s.qty).label;
+    acc[lbl] = (acc[lbl] || 0) + 1;
+    return acc;
+  }, {});
   const totalUnits = stocks.reduce((s, x) => s + (x.qty || 0), 0);
-  const toggle = (id: number) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggle = (id: number) => setExpanded(prev => {
+    const n = new Set(prev);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+
+  const availableSubCategories = selectedCategory === 'all'
+    ? subCategories
+    : subCategories.filter(sc => String(sc.mainItemCategoryId) === selectedCategory);
+
+  const filteredStocks = stocks.filter(s => {
+    const matchesCategory = selectedCategory === 'all' || String(s.mainItemCategoryId) === selectedCategory;
+    const matchesSubCategory = selectedSubCategory === 'all' || String(s.subItemCategoryId) === selectedSubCategory;
+    const q = searchQuery.trim().toLowerCase();
+    const matchesSearch = !q ||
+      (s.itemName && s.itemName.toLowerCase().includes(q)) ||
+      (s.itemCodePrefix && s.itemCodePrefix.toLowerCase().includes(q)) ||
+      (s.mainItemCategoryName && s.mainItemCategoryName.toLowerCase().includes(q)) ||
+      (s.subItemCategoryName && s.subItemCategoryName.toLowerCase().includes(q)) ||
+      String(s.stockId).includes(q);
+    return matchesCategory && matchesSubCategory && matchesSearch;
+  });
 
   const statCards = [
     { label: 'Optimal',   count: counts['Optimal']   || 0, bg: 'bg-emerald-50', border: 'border-emerald-200', num: 'text-emerald-600', sub: 'text-emerald-500', icon: '✓' },
@@ -309,23 +374,109 @@ function OverviewTab({ stocks, details }: { stocks: StockMaster[]; details: Stoc
       </div>
 
       <div className="rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+        {/* Header with Title and Total Units */}
         <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between bg-stone-50">
           <span className="text-xs font-bold text-stone-500 uppercase tracking-widest">Current Stock Levels</span>
           <span className="font-mono text-xs text-stone-400 bg-white border border-stone-200 px-3 py-1 rounded-full">{totalUnits.toLocaleString()} total units</span>
         </div>
+
+        {/* Filter Bar: Item Search, Main Category & Sub Category Filters */}
+        <div className="p-4 border-b border-stone-200 bg-white flex flex-col lg:flex-row items-center gap-3 justify-between">
+          <div className="flex flex-1 flex-wrap w-full lg:w-auto items-center gap-3">
+            {/* Search filter by item name / code / category / stock ID */}
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs">🔍</span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search item, code, category..."
+                className="w-full bg-stone-50 border border-stone-300 rounded-xl text-stone-800 text-xs pl-8 pr-8 py-2 outline-none focus:bg-white focus:border-stone-500 focus:ring-1 focus:ring-stone-400 transition-all placeholder:text-stone-400 font-medium"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 text-xs font-bold p-0.5"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Main Category filter */}
+            <div className="w-full sm:w-48">
+              <select
+                value={selectedCategory}
+                onChange={e => {
+                  setSelectedCategory(e.target.value);
+                  setSelectedSubCategory('all');
+                }}
+                className="w-full bg-stone-50 border border-stone-300 rounded-xl text-stone-800 text-xs px-3 py-2 outline-none focus:bg-white focus:border-stone-500 focus:ring-1 focus:ring-stone-400 transition-all cursor-pointer font-medium"
+              >
+                <option value="all">All Main Categories ({categories.length})</option>
+                {categories.map(c => (
+                  <option key={c.mainItemCategoryId} value={String(c.mainItemCategoryId)}>
+                    {c.mainItemCategoryName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Sub Category filter */}
+            <div className="w-full sm:w-48">
+              <select
+                value={selectedSubCategory}
+                onChange={e => setSelectedSubCategory(e.target.value)}
+                className="w-full bg-stone-50 border border-stone-300 rounded-xl text-stone-800 text-xs px-3 py-2 outline-none focus:bg-white focus:border-stone-500 focus:ring-1 focus:ring-stone-400 transition-all cursor-pointer font-medium"
+              >
+                <option value="all">All Sub Categories ({availableSubCategories.length})</option>
+                {availableSubCategories.map(sc => (
+                  <option key={sc.subItemCategoryId} value={String(sc.subItemCategoryId)}>
+                    {sc.subItemCategoryName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Reset button */}
+            {(searchQuery || selectedCategory !== 'all' || selectedSubCategory !== 'all') && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedCategory('all');
+                  setSelectedSubCategory('all');
+                }}
+                className="px-3 py-2 text-xs font-semibold text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors shrink-0"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 self-end lg:self-auto text-xs text-stone-500">
+            <span className="font-mono bg-stone-100 border border-stone-200 px-2.5 py-1 rounded-full">
+              Showing <strong>{filteredStocks.length}</strong> of <strong>{stocks.length}</strong> items
+            </span>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-stone-100 bg-stone-50/60">
-                {['Stock ID', 'Item Name', 'Item Code', 'Qty', 'Status', 'History'].map(h => (
+                {['Stock ID', 'Item Name', 'Main Category', 'Sub Category', 'Item Code', 'Qty', 'Status', 'History'].map(h => (
                   <th key={h} className="px-5 py-3 text-left text-xs font-bold text-stone-400 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {stocks.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-12 text-stone-400 text-sm">No stock records found</td></tr>
-              ) : stocks.map(s => {
+              {filteredStocks.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center py-12 text-stone-400 text-sm">
+                    {stocks.length === 0 ? 'No stock records found' : 'No items match your filter criteria'}
+                  </td>
+                </tr>
+              ) : filteredStocks.map(s => {
                 const txns   = details.filter(d => d.stockId === s.stockId);
                 const isOpen = expanded.has(s.stockId);
                 return (
@@ -333,7 +484,25 @@ function OverviewTab({ stocks, details }: { stocks: StockMaster[]; details: Stoc
                     <tr className="border-b border-stone-100 hover:bg-stone-50/70 transition-colors">
                       <td className="px-5 py-3.5 font-mono text-xs text-stone-400">#{s.stockId}</td>
                       <td className="px-5 py-3.5 font-semibold text-stone-800">{s.itemName || '—'}</td>
-                      <td className="px-5 py-3.5 font-mono text-xs text-stone-500">{s.itemCodePrefix}</td>
+                      <td className="px-5 py-3.5">
+                        {s.mainItemCategoryName ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                            {s.mainItemCategoryName}
+                          </span>
+                        ) : (
+                          <span className="text-stone-300 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {s.subItemCategoryName ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                            {s.subItemCategoryName}
+                          </span>
+                        ) : (
+                          <span className="text-stone-300 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5 font-mono text-xs text-stone-500">{s.itemCodePrefix || '—'}</td>
                       <td className="px-5 py-3.5 font-mono font-bold text-stone-800">{(s.qty || 0).toLocaleString()}</td>
                       <td className="px-5 py-3.5"><StatusBadge qty={s.qty} /></td>
                       <td className="px-5 py-3.5">
@@ -344,7 +513,7 @@ function OverviewTab({ stocks, details }: { stocks: StockMaster[]; details: Stoc
                     </tr>
                     {isOpen && (
                       <tr className="bg-stone-50/80">
-                        <td colSpan={6} className="px-8 py-4 border-b border-stone-100">
+                        <td colSpan={8} className="px-8 py-4 border-b border-stone-100">
                           {txns.length === 0 ? (
                             <p className="text-xs text-stone-400 italic">No transactions yet</p>
                           ) : (
@@ -811,26 +980,84 @@ export function StockManagementPage() {
   const [items,           setItems]           = useState<Item[]>([]);
   const [unitTypes,       setUnitTypes]       = useState<UnitType[]>([]);
   const [adjTypes,        setAdjTypes]        = useState<StockAdjType[]>([]);
+  const [categories,      setCategories]      = useState<Category[]>([]);
+  const [subCategories,   setSubCategories]   = useState<SubCategory[]>([]);
   const [loading,         setLoading]         = useState(true);
   const [tab,             setTab]             = useState<TabId>('overview');
   const { toast, show: showToast }            = useToast();
 
   const loadAll = useCallback(async () => {
     try {
-      const [s, d, cats, itms, uts, adjs] = await Promise.all([
+      const [s, d, cats, itms, uts, adjs, itemCats, subCats, catalogItems] = await Promise.all([
         api.getMasterStocks(),
         api.getAllDetails(),
         api.getStockCategories(),
         api.getItems(),
         api.getUnitTypes(),
         api.getStockAdjTypes(),
+        api.getCategories().catch(() => []),
+        api.getSubCategories().catch(() => []),
+        api.getCatalogItems().catch(() => []),
       ]);
-      setStocks(s);
+
+      const itemMap = new Map<number, any>();
+      (catalogItems || []).forEach(ci => {
+        if (ci.itemId != null) itemMap.set(ci.itemId, ci);
+      });
+
+      const enrichedStocks = (s || []).map(st => {
+        const ci = itemMap.get(st.itemId);
+        return {
+          ...st,
+          itemName: st.itemName || ci?.itemName || '—',
+          itemCodePrefix: st.itemCodePrefix || ci?.itemCodePrefix || null,
+          mainItemCategoryId: st.mainItemCategoryId ?? ci?.mainItemCategoryId ?? null,
+          mainItemCategoryName: st.mainItemCategoryName || ci?.mainItemCategoryName || null,
+          subItemCategoryId: st.subItemCategoryId ?? ci?.subItemCategoryId ?? null,
+          subItemCategoryName: st.subItemCategoryName || ci?.subItemCategoryName || null,
+        };
+      });
+
+      setStocks(enrichedStocks);
       setDetails(d);
       setStockCategories(cats);
       setItems(itms);
       setUnitTypes(uts);
       setAdjTypes(adjs);
+
+      let finalCats = itemCats || [];
+      if (finalCats.length === 0 && catalogItems && catalogItems.length > 0) {
+        const catMap = new Map<number, string>();
+        catalogItems.forEach(ci => {
+          if (ci.mainItemCategoryId != null && ci.mainItemCategoryName) {
+            catMap.set(ci.mainItemCategoryId, ci.mainItemCategoryName);
+          }
+        });
+        finalCats = Array.from(catMap.entries()).map(([id, name]) => ({
+          mainItemCategoryId: id,
+          mainItemCategoryName: name,
+        }));
+      }
+      setCategories(finalCats);
+
+      let finalSubCats = subCats || [];
+      if (finalSubCats.length === 0 && catalogItems && catalogItems.length > 0) {
+        const subCatMap = new Map<number, { mainId: number; name: string }>();
+        catalogItems.forEach(ci => {
+          if (ci.subItemCategoryId != null && ci.subItemCategoryName) {
+            subCatMap.set(ci.subItemCategoryId, {
+              mainId: ci.mainItemCategoryId || 0,
+              name: ci.subItemCategoryName,
+            });
+          }
+        });
+        finalSubCats = Array.from(subCatMap.entries()).map(([id, val]) => ({
+          subItemCategoryId: id,
+          mainItemCategoryId: val.mainId,
+          subItemCategoryName: val.name,
+        }));
+      }
+      setSubCategories(finalSubCats);
     } catch {
       showToast('Failed to load stock data', 'error');
     } finally {
@@ -871,7 +1098,14 @@ export function StockManagementPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-7">
-        {tab === 'overview'    && <OverviewTab    stocks={stocks} details={details} />}
+        {tab === 'overview'    && (
+          <OverviewTab
+            stocks={stocks}
+            details={details}
+            categories={categories}
+            subCategories={subCategories}
+          />
+        )}
         {tab === 'transaction' && <TransactionTab onSuccess={handleTxnSuccess} items={items} unitTypes={unitTypes} adjTypes={adjTypes} />}
         {tab === 'history'     && <HistoryTab     details={details} adjTypes={adjTypes} />}
         {tab === 'batchMerge'  && <BatchMergeTab  items={items} onSuccess={handleMergeSuccess} />}

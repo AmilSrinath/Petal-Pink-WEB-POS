@@ -25,6 +25,7 @@ import {
 import { FilterBar } from '../components/FilterBar';
 import { DataTable, Column } from '../components/DataTable';
 import { CourierBagCombobox, CourierBag } from '../components/CourierBagCombobox';
+import { ReturnDamageModal } from '../components/ReturnDamageModal';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -250,8 +251,8 @@ const isStatusButtonAllowed = (currentStatusId: number, targetStatusId: number):
   const allowedTransitions: Record<number, number[]> = {
     2:  [3, 7],
     3:  [4, 7],
-    4:  [5, 12, 16],   // ← 16 = Damage added here
-    12: [6],
+    4:  [5, 12, 16],
+    12: [6, 16],
   };
   return (allowedTransitions[currentStatusId] ?? []).includes(targetStatusId);
 };
@@ -819,6 +820,7 @@ interface OrderActionModalProps {
   statusTypes: StatusTypeOption[];
   autoGenerateId: boolean;
   isPrint: boolean;
+  onOpenReturnDamage?: (order: Order, action: 'return' | 'damage') => void;
 }
 
 const OrderActionModal = ({
@@ -829,6 +831,7 @@ const OrderActionModal = ({
   statusTypes,
   autoGenerateId,
   isPrint,
+  onOpenReturnDamage,
 }: OrderActionModalProps) => {
   const [specialNote, setSpecialNote] = useState('');
   const [showNoteInput, setShowNoteInput] = useState(false);
@@ -1067,6 +1070,17 @@ const OrderActionModal = ({
     }
 
     if (btn.action === 'status' && btn.statusId !== undefined) {
+      if (
+        (order.statusId === 12 && (btn.statusId === 6 || btn.statusId === 16)) ||
+        (order.statusId === 4 && btn.statusId === 16)
+      ) {
+        if (onOpenReturnDamage) {
+          onOpenReturnDamage(order, btn.statusId === 16 ? 'damage' : 'return');
+          onClose();
+          return;
+        }
+      }
+
       setLoadingStatusId(btn.statusId);
       setActionError(null);
       try {
@@ -1505,7 +1519,30 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes }: OrderViewModalP
                     {orderItems.map((item, idx) => (
                       <tr key={item.orderDetailId} className="hover:bg-gray-50 transition-colors">
                         <td className="px-3 py-2.5 text-xs text-gray-400">{idx + 1}</td>
-                        <td className="px-3 py-2.5 text-xs font-medium text-gray-900">{item.itemName}</td>
+                        <td className="px-3 py-2.5 text-xs font-medium text-gray-900">
+                          <div>{item.itemName}</div>
+                          {item.remark && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {item.remark.split('|').map((part, pIdx) => {
+                                const isPartDamage =
+                                  part.toLowerCase().includes('damage') ||
+                                  part.toLowerCase().includes('dmg');
+                                return (
+                                  <span
+                                    key={pIdx}
+                                    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                      isPartDamage
+                                        ? 'bg-orange-100 text-orange-800 border border-orange-200'
+                                        : 'bg-pink-100 text-pink-800 border border-pink-200'
+                                    }`}
+                                  >
+                                    {part.trim()}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700">
                           <span className="inline-flex items-center justify-center h-5 min-w-[1.25rem] rounded bg-gray-100 px-1.5 text-gray-800">
                             {item.quantity}
@@ -1678,6 +1715,8 @@ export function SalesPage() {
 
   // ── Modal state ──
   const [actionModalOrder, setActionModalOrder] = useState<Order | null>(null);
+  const [returnDamageOrder, setReturnDamageOrder] = useState<Order | null>(null);
+  const [returnDamageAction, setReturnDamageAction] = useState<'return' | 'damage'>('return');
   const [viewModalOrder, setViewModalOrder] = useState<Order | null>(null);
 
   // ── Delivery fee config ──
@@ -2593,6 +2632,26 @@ export function SalesPage() {
         statusTypes={statusTypes}
         autoGenerateId={autoGenerateId}
         isPrint={isPrint}
+        onOpenReturnDamage={(ord, act) => {
+          setReturnDamageOrder(ord);
+          setReturnDamageAction(act);
+        }}
+      />
+      <ReturnDamageModal
+        isOpen={!!returnDamageOrder}
+        onClose={() => setReturnDamageOrder(null)}
+        order={returnDamageOrder}
+        initialAction={returnDamageAction}
+        onSuccess={async (targetStatusId) => {
+          setOrders((prev) =>
+            prev.map((o) =>
+              o.deliveryId === returnDamageOrder?.deliveryId
+                ? { ...o, statusId: targetStatusId }
+                : o
+            )
+          );
+          setReturnDamageOrder(null);
+        }}
       />
       <OrderViewModal
         order={viewModalOrder}

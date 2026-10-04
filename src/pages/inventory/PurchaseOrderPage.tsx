@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { CheckCircleIcon } from 'lucide-react';
+import { CheckCircleIcon, Download, Printer, Plus, RefreshCw } from 'lucide-react';
 import { api } from './Integratedpages';
 import { API_BASE_URL } from '../../config';
+import { PurchaseOrderPrintView, PurchaseOrderPrintData, exportPoToPdf } from '../../components/PurchaseOrderPrintView';
 
 interface Item {
   itemId: number;
@@ -9,6 +10,7 @@ interface Item {
   unitType: string;
   costPrice: number;
   unitPrice: number;
+  lastGrnPrice?: number | null;
 }
 
 interface UnitType {
@@ -50,6 +52,9 @@ export function PurchaseOrderPage() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [allItems, setAllItems] = useState<Item[]>([]);
   const [allUnitTypes, setAllUnitTypes] = useState<UnitType[]>([]);
+  const [createdPO, setCreatedPO] = useState<PurchaseOrderPrintData | null>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const poPrintRef = useRef<HTMLDivElement | null>(null);
 
   const emptyItem = (): OrderItem => ({
     itemId: '',
@@ -159,13 +164,18 @@ export function PurchaseOrderPage() {
     const relatedUnits = getRelatedUnits(item.unitType, allUnitTypes);
     const defaultUnit = relatedUnits[0] ?? item.unitType;
 
+    // Use lastGrnPrice if available and > 0, otherwise fallback to costPrice
+    const hasGrnPrice = item.lastGrnPrice != null && Number(item.lastGrnPrice) > 0;
+    const effectivePrice = hasGrnPrice ? Number(item.lastGrnPrice) : (item.costPrice || 0);
+
     const newItems = [...formData.items];
     newItems[index] = {
       ...newItems[index],
       itemId: String(item.itemId),
       itemName: item.itemName,
       searchQuery: item.itemName,
-      expectedPrice: String(item.costPrice || ''),
+      expectedPrice: effectivePrice > 0 ? String(effectivePrice) : '',
+      lastGrnPrice: hasGrnPrice ? String(item.lastGrnPrice) : (item.costPrice ? String(item.costPrice) : ''),
       unitType: item.unitType,
       selectedUnitType: defaultUnit,
       showDropdown: false,
@@ -209,8 +219,55 @@ export function PurchaseOrderPage() {
     setFormData((prev) => ({ ...prev, items: newItems, totalPrice: grandTotal }));
   };
 
+  const resetForm = () => {
+    setFormData({
+      poPrefix: 'PO',
+      poCode: Date.now(),
+      poCodePrefix: 'PO',
+      supplierId: '',
+      supplierName: '',
+      poDate: new Date().toISOString().split('T')[0],
+      expectedDate: '',
+      totalPrice: 0,
+      paymentType: 1,
+      status: 1,
+      userId: 1,
+      visible: 1,
+      items: [emptyItem()],
+    });
+    setCreatedPO(null);
+    setSubmitted(false);
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!poPrintRef.current || !createdPO) return;
+    setIsExportingPdf(true);
+    try {
+      await exportPoToPdf(poPrintRef.current, `PO_${createdPO.poNumber}_${createdPO.poDate}`);
+    } catch (err) {
+      console.error('Failed to export PO PDF:', err);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.supplierId) {
+      alert('Please select a supplier');
+      return;
+    }
+    const validItems = formData.items.filter((it) => it.itemName.trim() !== '');
+    if (validItems.length === 0) {
+      alert('Please add at least one item');
+      return;
+    }
+
     setLoading(true);
     try {
       const payload = {
@@ -226,14 +283,14 @@ export function PurchaseOrderPage() {
         status: formData.status,
         userId: formData.userId,
         visible: formData.visible,
-        details: formData.items.map((item) => ({
+        details: validItems.map((item) => ({
           itemId: parseInt(item.itemId) || 0,
           itemName: item.itemName,
           qty: parseFloat(item.qty) || 0,
           expectedPrice: parseFloat(item.expectedPrice) || 0,
           lastGrnPrice: parseFloat(item.lastGrnPrice) || 0,
           totalPrice: parseFloat(item.totalPrice) || 0,
-          unitType: item.selectedUnitType,
+          unitType: item.selectedUnitType || item.unitType,
         })),
       };
 
@@ -243,25 +300,32 @@ export function PurchaseOrderPage() {
         body: JSON.stringify(payload),
       });
 
+      const selectedSupplier = suppliers.find((s) => s.supplierId === parseInt(formData.supplierId));
+      const poNumber = `${formData.poCodePrefix}-${formData.poCode}`;
+
+      setCreatedPO({
+        poNumber,
+        poDate: formData.poDate,
+        expectedDate: formData.expectedDate,
+        supplierName: formData.supplierName || selectedSupplier?.companyName || selectedSupplier?.salesmanName || 'Supplier',
+        supplierPhone: selectedSupplier?.contactNumber || selectedSupplier?.telephoneNumber || selectedSupplier?.mobileNumber,
+        supplierEmail: selectedSupplier?.email,
+        supplierAddress: selectedSupplier?.address,
+        salesmanName: selectedSupplier?.salesmanName,
+        paymentType: formData.paymentType === 1 ? 'Cash' : 'Credit',
+        statusLabel: 'Pending Confirmation',
+        totalPrice: formData.totalPrice,
+        items: validItems.map((it) => ({
+          itemName: it.itemName,
+          unitType: it.selectedUnitType || it.unitType || 'Unit',
+          qty: parseFloat(it.qty) || 0,
+          expectedPrice: parseFloat(it.expectedPrice) || 0,
+          lastGrnPrice: parseFloat(it.lastGrnPrice) || 0,
+          totalPrice: parseFloat(it.totalPrice) || 0,
+        })),
+      });
+
       setSubmitted(true);
-      setTimeout(() => {
-        setFormData({
-          poPrefix: 'PO',
-          poCode: Date.now(),
-          poCodePrefix: 'PO',
-          supplierId: '',
-          supplierName: '',
-          poDate: new Date().toISOString().split('T')[0],
-          expectedDate: '',
-          totalPrice: 0,
-          paymentType: 1,
-          status: 1,
-          userId: 1,
-          visible: 1,
-          items: [emptyItem()],
-        });
-        setSubmitted(false);
-      }, 2000);
     } catch {
       alert('Failed to create Purchase Order. Please try again.');
     } finally {
@@ -269,13 +333,59 @@ export function PurchaseOrderPage() {
     }
   };
 
-  if (submitted) {
+  if (submitted && createdPO) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <CheckCircleIcon className="h-16 w-16 text-green-600 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Purchase Order Created</h2>
-          <p className="text-gray-600">The purchase order has been created successfully.</p>
+      <div className="flex-1 overflow-auto bg-gray-100 p-6">
+        <div className="max-w-5xl mx-auto space-y-6">
+          {/* Action Bar */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                <CheckCircleIcon className="h-7 w-7 text-green-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Purchase Order Created Successfully!</h2>
+                <p className="text-xs text-gray-500">
+                  PO Number: <span className="font-semibold text-teal-700 font-mono">{createdPO.poNumber}</span> &nbsp;|&nbsp; Supplier: <span className="font-semibold text-gray-800">{createdPO.supplierName}</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={isExportingPdf}
+                className="flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-teal-700 disabled:opacity-50 transition-colors"
+              >
+                <Download className="h-4 w-4" />
+                {isExportingPdf ? 'Generating PDF...' : 'Download PDF'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
+              >
+                <Printer className="h-4 w-4" />
+                Print
+              </button>
+
+              <button
+                type="button"
+                onClick={resetForm}
+                className="flex items-center gap-2 rounded-lg border border-teal-600 bg-teal-50 px-4 py-2.5 text-sm font-semibold text-teal-700 shadow-sm hover:bg-teal-100 transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                Create Another PO
+              </button>
+            </div>
+          </div>
+
+          {/* Printable Preview */}
+          <div className="flex justify-center overflow-x-auto pb-10">
+            <PurchaseOrderPrintView ref={poPrintRef} order={createdPO} />
+          </div>
         </div>
       </div>
     );
@@ -394,11 +504,14 @@ export function PurchaseOrderPage() {
                               key={result.itemId}
                               type="button"
                               onMouseDown={() => handleSelectItem(index, result)}
-                              className="w-full text-left px-3 py-2 text-sm hover:bg-teal-50 hover:text-teal-700 border-b border-gray-100 last:border-0"
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-teal-50 hover:text-teal-700 border-b border-gray-100 last:border-0 flex items-center justify-between"
                             >
-                              <span className="font-medium">{result.itemName}</span>
-                              <span className="ml-2 text-xs text-gray-400">
-                                {result.unitType} — Rs.{result.costPrice}
+                              <div>
+                                <span className="font-medium text-gray-800">{result.itemName}</span>
+                                <span className="ml-2 text-xs text-gray-400">({result.unitType})</span>
+                              </div>
+                              <span className="ml-2 text-xs font-mono bg-teal-50 text-teal-700 px-2 py-0.5 rounded border border-teal-100">
+                                Last GRN: Rs. {((result.lastGrnPrice != null && Number(result.lastGrnPrice) > 0) ? Number(result.lastGrnPrice) : (result.costPrice || 0)).toFixed(2)}
                               </span>
                             </button>
                           ))}

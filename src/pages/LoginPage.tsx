@@ -72,6 +72,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
       if (response.ok) {
         localStorage.setItem('userId', String(selectedUser.userId));
         localStorage.setItem('username', selectedUser.username);
+        if (selectedUser.roleId != null) {
+          localStorage.setItem('roleId', String(selectedUser.roleId));
+        }
         onLogin(selectedUser.username); // ← pass username to parent
       } else {
         setLoginError('Invalid password. Please try again.');

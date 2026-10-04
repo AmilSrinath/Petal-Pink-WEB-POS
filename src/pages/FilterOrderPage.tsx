@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { CourierBagCombobox, CourierBag } from '../components/CourierBagCombobox';
+import { ReturnDamageModal } from '../components/ReturnDamageModal';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -150,7 +151,7 @@ const isStatusButtonAllowed = (currentStatusId: number, targetStatusId: number):
     2:  [3, 7],
     3:  [4, 7],
     4:  [5, 12, 16],
-    12: [6],
+    12: [6, 16],
   };
   return (allowedTransitions[currentStatusId] ?? []).includes(targetStatusId);
 };
@@ -208,10 +209,11 @@ interface OrderActionModalProps {
   statusTypes: StatusTypeOption[];
   autoGenerateId: boolean;
   isPrint: boolean;
+  onOpenReturnDamage?: (order: ModalOrder, action: 'return' | 'damage') => void;
 }
 
 const OrderActionModal = ({
-  order, isOpen, onClose, onAction, statusTypes, autoGenerateId, isPrint,
+  order, isOpen, onClose, onAction, statusTypes, autoGenerateId, isPrint, onOpenReturnDamage,
 }: OrderActionModalProps) => {
   const [specialNote,     setSpecialNote]     = useState('');
   const [showNoteInput,   setShowNoteInput]   = useState(false);
@@ -329,6 +331,17 @@ const OrderActionModal = ({
     }
 
     if (btn.action === 'status' && btn.statusId !== undefined) {
+      if (
+        (order.statusId === 12 && (btn.statusId === 6 || btn.statusId === 16)) ||
+        (order.statusId === 4 && btn.statusId === 16)
+      ) {
+        if (onOpenReturnDamage) {
+          onOpenReturnDamage(order, btn.statusId === 16 ? 'damage' : 'return');
+          onClose();
+          return;
+        }
+      }
+
       setLoadingStatusId(btn.statusId); setActionError(null);
       try {
         await onAction(order, 'status', btn.statusId); onClose();
@@ -652,7 +665,30 @@ const OrderViewModal = ({ order, isOpen, onClose, statusTypes, paymentTypeMap, r
                     {orderItems.map((item, idx) => (
                       <tr key={item.orderDetailId} className="hover:bg-gray-50 transition-colors">
                         <td className="px-3 py-2.5 text-xs text-gray-400">{idx + 1}</td>
-                        <td className="px-3 py-2.5 text-xs font-medium text-gray-900">{item.itemName}</td>
+                        <td className="px-3 py-2.5 text-xs font-medium text-gray-900">
+                          <div>{item.itemName}</div>
+                          {item.remark && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {item.remark.split('|').map((part, pIdx) => {
+                                const isPartDamage =
+                                  part.toLowerCase().includes('damage') ||
+                                  part.toLowerCase().includes('dmg');
+                                return (
+                                  <span
+                                    key={pIdx}
+                                    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                      isPartDamage
+                                        ? 'bg-orange-100 text-orange-800 border border-orange-200'
+                                        : 'bg-pink-100 text-pink-800 border border-pink-200'
+                                    }`}
+                                  >
+                                    {part.trim()}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-3 py-2.5 text-center text-xs font-semibold text-gray-700">
                           <span className="inline-flex items-center justify-center h-5 min-w-[1.25rem] rounded bg-gray-100 px-1.5 text-gray-800">{item.quantity}</span>
                         </td>
@@ -789,6 +825,8 @@ export function FilterOrderPage() {
 
   const [selectedOrder,     setSelectedOrder]     = useState<Order | null>(null);
   const [actionModalOrder,  setActionModalOrder]  = useState<ModalOrder | null>(null);
+  const [returnDamageOrder, setReturnDamageOrder] = useState<ModalOrder | null>(null);
+  const [returnDamageAction, setReturnDamageAction] = useState<'return' | 'damage'>('return');
   const [viewModalOrder,    setViewModalOrder]    = useState<ModalOrder | null>(null);
   const [viewModalRaw,      setViewModalRaw]      = useState<Order | null>(null);
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
@@ -1247,6 +1285,30 @@ export function FilterOrderPage() {
         statusTypes={statusTypeOptions}
         autoGenerateId={autoGenerateId}
         isPrint={isPrint}
+        onOpenReturnDamage={(ord, act) => {
+          setReturnDamageOrder(ord);
+          setReturnDamageAction(act);
+        }}
+      />
+
+      <ReturnDamageModal
+        isOpen={!!returnDamageOrder}
+        onClose={() => setReturnDamageOrder(null)}
+        order={returnDamageOrder}
+        initialAction={returnDamageAction}
+        onSuccess={async (targetStatusId) => {
+          setOrders((prev) => {
+            const next = prev.map((o) => {
+              const targetId = returnDamageOrder?.deliveryId ?? returnDamageOrder?.orderId;
+              const oId = o.deliveryId ?? o.orderId;
+              return oId === targetId ? { ...o, statusId: targetStatusId } : o;
+            });
+            appCache.orders = next;
+            return next;
+          });
+          setReturnDamageOrder(null);
+          showToast('success', `Order status updated to ${targetStatusId === 16 ? 'Damage' : 'Return'} successfully.`);
+        }}
       />
 
       <OrderViewModal

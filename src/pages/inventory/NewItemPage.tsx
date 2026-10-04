@@ -127,6 +127,50 @@ function toDisplayUnit(quantity: number, unitType: string): { quantity: number; 
   return { quantity, unitType };
 }
 
+// ── Next Item Code Calculator ───────────────────────────────────────────────
+export function calculateNextItemCode(items: Item[], prefix?: string): string {
+  const p = (prefix || '').trim();
+  if (p) {
+    const pLower = p.toLowerCase();
+    const matchingCodes = items
+      .map(i => (i.itemCodePrefix || '').trim())
+      .filter(c => c.toLowerCase().startsWith(pLower) || items.some(i => (i.itemPrefix || '').toLowerCase() === pLower && i.itemCodePrefix === c));
+
+    let maxNum = 0;
+    let padding = 2;
+    matchingCodes.forEach(code => {
+      const digits = code.replace(/^\D+/, '');
+      if (digits) {
+        const n = parseInt(digits, 10);
+        if (!isNaN(n) && n > maxNum) {
+          maxNum = n;
+          padding = Math.max(padding, digits.length);
+        }
+      }
+    });
+
+    const nextNum = maxNum + 1;
+    return `${p}${String(nextNum).padStart(padding, '0')}`;
+  } else {
+    // Purely numeric codes (e.g. 001..053)
+    let maxNum = 0;
+    let padding = 3;
+    items.forEach(i => {
+      const code = (i.itemCodePrefix || '').trim();
+      if (/^\d+$/.test(code)) {
+        const n = parseInt(code, 10);
+        if (!isNaN(n) && n > maxNum) {
+          maxNum = n;
+          padding = Math.max(padding, code.length);
+        }
+      }
+    });
+
+    const nextNum = maxNum + 1;
+    return String(nextNum).padStart(padding, '0');
+  }
+}
+
 // ── Shared styles ────────────────────────────────────────────────────────────
 const inputCls =
   'mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm ' +
@@ -298,10 +342,24 @@ export function NewItemPage() {
 
   const openNew = () => {
     setEditingItem(null);
-    setFormData(emptyForm);
+    const nextCode = calculateNextItemCode(items, '');
+    setFormData({ ...emptyForm, itemCode: nextCode });
     resetTemplate();
     if (fileInputRef.current) fileInputRef.current.value = '';
     setModalOpen(true);
+
+    // Also async sync from backend if available
+    fetch(`${API_BASE}/next-code`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (data?.nextCode) {
+          setFormData(prev => ({
+            ...prev,
+            itemCode: prev.itemCode === nextCode ? data.nextCode : prev.itemCode,
+          }));
+        }
+      })
+      .catch(() => {});
   };
 
   // UPDATED: openEdit now fetches the existing template and pre-populates it
@@ -394,13 +452,15 @@ export function NewItemPage() {
         formData.unitType === 'l'  ? 'ml' :
         formData.unitType;
 
+      const finalItemCode = formData.itemCode.trim() || calculateNextItemCode(items, formData.codePrefix);
+
       const payload = {
         ...(editingItem ? { itemId: editingItem.itemId } : {}),
         itemBarCode: formData.barcode ? Number(formData.barcode) : null,
         mainItemCategoryId: formData.mainCategory ? Number(formData.mainCategory) : null,
         subItemCategoryId: formData.subCategory ? Number(formData.subCategory) : null,
         itemPrefix: formData.codePrefix,
-        itemCodePrefix: formData.itemCode,
+        itemCodePrefix: finalItemCode,
         discount: Number(formData.discount) || 0,
         itemName: formData.itemName,
         unitType: storedUnitType,
@@ -530,10 +590,18 @@ export function NewItemPage() {
     const { name, value, type } = e.target;
     const checked = type === 'checkbox' ? (e.target as HTMLInputElement).checked : undefined;
 
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
+    setFormData(prev => {
+      const next = {
+        ...prev,
+        [name]: type === 'checkbox' ? checked : value,
+      };
+
+      if (!editingItem && name === 'codePrefix') {
+        next.itemCode = calculateNextItemCode(items, value);
+      }
+
+      return next;
+    });
   };
 
   const handleMainCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -782,11 +850,35 @@ export function NewItemPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <Field label="Code Prefix">
                     <input type="text" name="codePrefix" value={formData.codePrefix} onChange={handleChange}
-                      maxLength={6} placeholder="e.g. BEV" className={inputCls} />
+                      maxLength={6} placeholder="e.g. H, S, B" className={inputCls} />
                   </Field>
-                  <Field label="Item Code">
-                    <input type="text" name="itemCode" value={formData.itemCode} onChange={handleChange}
-                      placeholder="e.g. BEV-001" className={inputCls} />
+                  <Field label={
+                    <div className="flex items-center justify-between">
+                      <span>Item Code</span>
+                      {!editingItem && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = calculateNextItemCode(items, formData.codePrefix);
+                            setFormData(prev => ({ ...prev, itemCode: next }));
+                          }}
+                          className="text-[11px] font-semibold text-teal-600 hover:text-teal-700 underline"
+                          title="Generate next available sequential item code"
+                        >
+                          Auto Next
+                        </button>
+                      )}
+                    </div>
+                  }>
+                    <div className="relative">
+                      <input type="text" name="itemCode" value={formData.itemCode} onChange={handleChange}
+                        placeholder="e.g. 054" className={inputCls} />
+                      {!editingItem && formData.itemCode && (
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] bg-teal-50 text-teal-700 font-semibold px-1.5 py-0.5 rounded border border-teal-200 pointer-events-none">
+                          Auto
+                        </span>
+                      )}
+                    </div>
                   </Field>
                   <Field label="Barcode">
                     <input type="text" name="barcode" value={formData.barcode} onChange={handleChange}
